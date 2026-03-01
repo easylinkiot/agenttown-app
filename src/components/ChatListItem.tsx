@@ -42,7 +42,11 @@ export function ChatListItem({
     : chat.message;
 
   return (
-    <Pressable style={[styles.container, isNeo && styles.containerNeo]} onPress={onPress}>
+    <Pressable
+      testID={`chat-list-item-${chat.id}`}
+      style={[styles.container, isNeo && styles.containerNeo]}
+      onPress={onPress}
+    >
       {onAvatarPress ? (
         <Pressable
           style={styles.avatarWrap}

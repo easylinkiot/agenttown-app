@@ -13,6 +13,7 @@ import {
   RealtimeEvent,
   SkillCatalogItem,
   TaskItem,
+  ThreadDisplayLanguage,
   ThreadMember,
   ThreadMemberType,
 } from "@/src/types";
@@ -72,6 +73,12 @@ export interface CreateTaskFromMessageInput {
   assignee?: string;
   priority?: "High" | "Medium" | "Low";
   dueAt?: string;
+}
+
+export interface ThreadDisplayLanguagePreferenceResponse {
+  thread_id: string;
+  language: ThreadDisplayLanguage;
+  updated_at?: string;
 }
 
 export interface PatchTaskInput {
@@ -675,6 +682,22 @@ export async function deleteChatThread(threadId: string) {
   return apiFetch<{ ok: boolean; id: string }>(`/v1/chat/threads/${encodeURIComponent(threadId)}`, {
     method: "DELETE",
   });
+}
+
+export async function getThreadDisplayLanguage(threadId: string) {
+  return apiFetch<ThreadDisplayLanguagePreferenceResponse>(
+    `/v1/chat/threads/${encodeURIComponent(threadId)}/display-language`
+  );
+}
+
+export async function updateThreadDisplayLanguage(threadId: string, language: ThreadDisplayLanguage) {
+  return apiFetch<ThreadDisplayLanguagePreferenceResponse>(
+    `/v1/chat/threads/${encodeURIComponent(threadId)}/display-language`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ language }),
+    }
+  );
 }
 
 export async function atCreateSession(payload: ATCreateSessionInput): Promise<ATSession> {

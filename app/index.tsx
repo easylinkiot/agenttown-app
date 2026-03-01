@@ -535,6 +535,7 @@ export default function HomeScreen() {
             <LoadingSkeleton kind="chat_list" />
           ) : (
             <FlatList
+              testID="home-chat-list"
               data={list}
               keyExtractor={(item) => item.id}
               style={styles.chatList}

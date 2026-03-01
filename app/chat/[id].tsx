@@ -61,7 +61,14 @@ import {
 } from "@/src/services/chatAssist";
 import { useAgentTown } from "@/src/state/agenttown-context";
 import { useAuth } from "@/src/state/auth-context";
-import { Agent, ChatThread, ConversationMessage, Friend, ThreadMember } from "@/src/types";
+import {
+  Agent,
+  ChatThread,
+  ConversationMessage,
+  Friend,
+  ThreadDisplayLanguage,
+  ThreadMember,
+} from "@/src/types";
 
 type MemberFilter = "all" | "human" | "agent" | "role";
 type MemberCandidate = {
@@ -122,6 +129,11 @@ const PLUS_PANEL_ITEMS: PlusPanelItem[] = [
   { key: "camera", icon: "camera-outline", zh: "相机", en: "Camera" },
   { key: "voice", icon: "mic-outline", zh: "语音", en: "Voice" },
   { key: "contact", icon: "person-circle-outline", zh: "个人名片", en: "Contact Card" },
+];
+const THREAD_LANGUAGE_OPTIONS: { key: ThreadDisplayLanguage; label: string }[] = [
+  { key: "zh", label: "中" },
+  { key: "en", label: "En" },
+  { key: "de", label: "De" },
 ];
 
 function formatMediaDuration(totalSeconds?: number) {
@@ -310,9 +322,11 @@ export default function ChatDetailScreen() {
     agents,
     botConfig,
     language,
+    threadLanguageById,
     refreshThreadMessages,
     loadOlderMessages,
     sendMessage,
+    createTaskFromMessage,
     createFriend,
     listMembers,
     addMember,
@@ -320,10 +334,12 @@ export default function ChatDetailScreen() {
     removeFriend,
     removeChatThread,
     generateRoleReplies,
+    updateThreadLanguage,
   } = useAgentTown();
   const messagesByThreadRef = useRef(messagesByThread);
 
   const tr = (zh: string, en: string) => tx(language, zh, en);
+  const threadDisplayLanguage: ThreadDisplayLanguage = threadLanguageById[chatId] || language || "en";
 
   const openEntityConfig = useCallback(
     (entity: { entityType: "human" | "bot" | "npc"; entityId?: string; name?: string; avatar?: string }) => {
@@ -1061,7 +1077,7 @@ export default function ChatDetailScreen() {
         return;
       }
       router.push({
-        pathname: "/chat/media-picker",
+        pathname: "./media-picker",
         params: {
           chatId,
         },
@@ -1179,6 +1195,7 @@ export default function ChatDetailScreen() {
     setLoadingOlder(false);
     setPendingMessages([]);
     setHasUserScrolled(false);
+    setShowOriginalByMessageId({});
     closeMediaSheet({ clearSelection: true, duration: 0 });
   }, [chatId, closeMediaSheet]);
 
@@ -1294,6 +1311,10 @@ export default function ChatDetailScreen() {
   const [askAIAction, setAskAIAction] = useState<ChatAssistAction>("ask_anything");
   const [askAIError, setAskAIError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [translatedByMessageId, setTranslatedByMessageId] = useState<
+    Record<string, Partial<Record<ThreadDisplayLanguage, string>>>
+  >({});
+  const [showOriginalByMessageId, setShowOriginalByMessageId] = useState<Record<string, boolean>>({});
   const askAIAbortRef = useRef<AbortController | null>(null);
   const askAIRequestSeqRef = useRef(0);
   const askAIMountedRef = useRef(true);
@@ -1750,6 +1771,9 @@ export default function ChatDetailScreen() {
       } else if ((action === "translate" || action === "follow_up") && inlineInput) {
         assistRequest.input = inlineInput;
       }
+      if (action === "translate") {
+        assistRequest.target_language = threadDisplayLanguage;
+      }
 
       try {
         if (action === "ask_anything") {
@@ -1821,7 +1845,17 @@ export default function ChatDetailScreen() {
         setIsStreaming(false);
       }
     },
-    [abortAskAIStream, actionMessage, askAI, chatId, isStreaming, thread.targetId, thread.targetType, tr]
+    [
+      abortAskAIStream,
+      actionMessage,
+      askAI,
+      chatId,
+      isStreaming,
+      thread.targetId,
+      thread.targetType,
+      threadDisplayLanguage,
+      tr,
+    ]
   );
 
   const handleLongPress = (message: ConversationMessage) => {
@@ -1984,6 +2018,43 @@ export default function ChatDetailScreen() {
       } else {
         setInput(text);
       }
+    } else if (askAIAction === "add_task" && actionMessage) {
+      const messageId = (actionMessage.id || "").trim();
+      const candidateTitle = (picked.title || text.split("\n")[0] || tr("跟进任务", "Follow-up task")).trim();
+      if (messageId) {
+        void createTaskFromMessage(chatId, messageId, candidateTitle)
+          .then((created) => {
+            if (!created?.id) return;
+            Alert.alert(
+              tr("任务已创建", "Task Created"),
+              tr("已从当前消息创建任务并同步到任务列表。", "Task was created from the selected message and synced to Tasks.")
+            );
+          })
+          .catch(() => {
+            // Fallback to input draft so user can still submit manually.
+            setInput(text);
+          });
+        closeActionModal();
+        return;
+      }
+      setInput(text);
+    } else if (askAIAction === "translate" && actionMessage) {
+      const messageId = (actionMessage.id || "").trim();
+      if (messageId) {
+        setTranslatedByMessageId((prev) => ({
+          ...prev,
+          [messageId]: {
+            ...(prev[messageId] || {}),
+            [threadDisplayLanguage]: text,
+          },
+        }));
+        setShowOriginalByMessageId((prev) => ({
+          ...prev,
+          [messageId]: false,
+        }));
+      } else {
+        setInput(text);
+      }
     } else {
       setInput(text);
     }
@@ -2102,7 +2173,12 @@ export default function ChatDetailScreen() {
       const meFinal = isCurrentUserMessage(raw, actorID);
       const highlighted = highlightMessageId !== "" && raw.id === highlightMessageId;
       const streamText = streamingById[raw.id];
-      const displayText = normalizeDisplayedContent((streamText ?? raw.content) || "", raw.senderName);
+      const sourceText = normalizeDisplayedContent((streamText ?? raw.content) || "", raw.senderName);
+      const translatedText = (translatedByMessageId[raw.id]?.[threadDisplayLanguage] || "").trim();
+      const hasTranslatedText = !streamText && translatedText !== "";
+      const displayText = hasTranslatedText ? translatedText : sourceText;
+      const canToggleOriginal = hasTranslatedText && sourceText !== "" && sourceText !== displayText;
+      const originalVisible = Boolean(showOriginalByMessageId[raw.id]);
       const ownAvatar = (user?.avatar || botConfig.avatar || "").trim();
       const avatarTag = meFinal ? null : inferAvatarTagFromSender(raw);
       const avatarEntityType: "human" | "bot" | "npc" = meFinal
@@ -2161,6 +2237,29 @@ export default function ChatDetailScreen() {
             ) : null}
             {displayText ? (
               <Text style={[styles.msgText, meFinal && styles.msgTextMe]}>{displayText}</Text>
+            ) : null}
+            {canToggleOriginal ? (
+              <Pressable
+                onPress={() =>
+                  setShowOriginalByMessageId((prev) => ({
+                    ...prev,
+                    [raw.id]: !prev[raw.id],
+                  }))
+                }
+                style={styles.originalToggle}
+              >
+                <Text style={[styles.originalToggleText, meFinal && styles.originalToggleTextMe]}>
+                  {originalVisible ? tr("隐藏原文", "Hide original") : tr("查看原文", "Original")}
+                </Text>
+              </Pressable>
+            ) : null}
+            {canToggleOriginal && originalVisible ? (
+              <View style={styles.originalWrap}>
+                <Text style={[styles.originalLabel, meFinal && styles.originalLabelMe]}>
+                  {tr("原文", "Original")}
+                </Text>
+                <Text style={[styles.originalText, meFinal && styles.originalTextMe]}>{sourceText}</Text>
+              </View>
             ) : null}
           </View>
         );
@@ -2231,6 +2330,9 @@ export default function ChatDetailScreen() {
       highlightMessageId,
       openEntityConfig,
       streamingById,
+      threadDisplayLanguage,
+      translatedByMessageId,
+      showOriginalByMessageId,
       thread.avatar,
       tr,
       user?.avatar,
@@ -2382,7 +2484,7 @@ export default function ChatDetailScreen() {
         >
         <ContainerView style={containerStyle}>
           <View style={styles.headerRow}>
-            <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <Pressable testID="chat-back-button" style={styles.backBtn} onPress={() => router.back()}>
               <Ionicons name="chevron-back" size={18} color="#e2e8f0" />
             </Pressable>
             <Pressable
@@ -2443,6 +2545,25 @@ export default function ChatDetailScreen() {
                 <Ionicons name="ellipsis-horizontal" size={16} color="rgba(226,232,240,0.92)" />
               </Pressable>
             </View>
+          </View>
+
+          <View style={styles.threadLanguageRow}>
+            {THREAD_LANGUAGE_OPTIONS.map((item) => {
+              const active = threadDisplayLanguage === item.key;
+              return (
+                <Pressable
+                  key={item.key}
+                  style={[styles.threadLanguageChip, active && styles.threadLanguageChipActive]}
+                  onPress={() => {
+                    void updateThreadLanguage(chatId, item.key);
+                  }}
+                >
+                  <Text style={[styles.threadLanguageChipText, active && styles.threadLanguageChipTextActive]}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
 
           {failedDraft ? (
@@ -3287,6 +3408,37 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  threadLanguageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: -2,
+    marginBottom: 2,
+    paddingLeft: 52,
+  },
+  threadLanguageChip: {
+    minWidth: 34,
+    height: 26,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.36)",
+    backgroundColor: "rgba(30,41,59,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  threadLanguageChipActive: {
+    borderColor: "rgba(147,197,253,0.75)",
+    backgroundColor: "rgba(30,64,175,0.45)",
+  },
+  threadLanguageChipText: {
+    color: "rgba(226,232,240,0.88)",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  threadLanguageChipTextActive: {
+    color: "#f8fafc",
+  },
   headerActions: {
     flexDirection: "row",
     gap: 10,
@@ -3462,6 +3614,44 @@ const styles = StyleSheet.create({
   },
   msgTextMe: {
     color: "#f8fafc",
+  },
+  originalToggle: {
+    alignSelf: "flex-start",
+    marginTop: 2,
+  },
+  originalToggleText: {
+    color: "rgba(191,219,254,0.95)",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  originalToggleTextMe: {
+    color: "rgba(219,234,254,0.98)",
+  },
+  originalWrap: {
+    marginTop: 2,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(148,163,184,0.28)",
+    gap: 4,
+  },
+  originalLabel: {
+    color: "rgba(148,163,184,0.95)",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  originalLabelMe: {
+    color: "rgba(191,219,254,0.95)",
+  },
+  originalText: {
+    color: "rgba(203,213,225,0.94)",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  originalTextMe: {
+    color: "rgba(224,242,254,0.95)",
   },
   time: {
     color: "rgba(148,163,184,0.9)",

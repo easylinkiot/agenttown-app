@@ -23,7 +23,8 @@ export interface ChatThread {
 }
 
 export type UiTheme = "classic" | "neo";
-export type AppLanguage = "zh" | "en";
+export type AppLanguage = "zh" | "en" | "de";
+export type ThreadDisplayLanguage = "zh" | "en" | "de";
 
 export type TaskPriority = "High" | "Medium" | "Low";
 export type TaskStatus = "Pending" | "In Progress" | "Done";

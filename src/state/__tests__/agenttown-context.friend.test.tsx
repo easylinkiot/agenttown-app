@@ -1,3 +1,4 @@
+import mockAsyncStorage from "@react-native-async-storage/async-storage/jest/async-storage-mock";
 import React from "react";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 
@@ -23,6 +24,8 @@ import {
 jest.mock("../auth-context", () => ({
   useAuth: jest.fn(),
 }));
+
+jest.mock("@react-native-async-storage/async-storage", () => mockAsyncStorage);
 
 jest.mock("@/src/services/task-notifications", () => ({
   clearTaskReminderNotifications: jest.fn(),

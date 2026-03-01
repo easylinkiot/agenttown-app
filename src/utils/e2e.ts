@@ -16,8 +16,16 @@ function readDetoxLaunchArgs() {
   return null;
 }
 
+export function getE2ELaunchArgs() {
+  return readDetoxLaunchArgs();
+}
+
 export function isE2ETestMode() {
-  const args = readDetoxLaunchArgs();
+  const envMode = (process.env.EXPO_PUBLIC_E2E_MODE || "").trim().toLowerCase();
+  if (envMode === "1" || envMode === "true") {
+    return true;
+  }
+  const args = getE2ELaunchArgs();
   if (!args) return false;
   return Boolean(args.detoxServer || args.detoxSessionId || args.e2eMode);
 }

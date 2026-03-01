@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
@@ -25,6 +26,7 @@ import {
   listThreadMessages as listThreadMessagesApi,
   listChatThreads as listChatThreadsApi,
   listChatSessionMessages as listChatSessionMessagesApi,
+  getThreadDisplayLanguage as getThreadDisplayLanguageApi,
   patchCustomSkill as patchCustomSkillApi,
   patchTask as patchTaskApi,
   queryChatTargetHistory as queryChatTargetHistoryApi,
@@ -34,6 +36,7 @@ import {
   sendThreadMessage as sendThreadMessageApi,
   subscribeRealtime,
   toggleAgentSkill as toggleAgentSkillApi,
+  updateThreadDisplayLanguage as updateThreadDisplayLanguageApi,
   uninstallBotSkill as uninstallBotSkillApi,
   mapATMessageToConversation,
   mapATSessionToThread,
@@ -56,6 +59,7 @@ import {
   RealtimeEvent,
   SkillCatalogItem,
   TaskItem,
+  ThreadDisplayLanguage,
   ThreadMember,
   UiTheme,
 } from "@/src/types";
@@ -88,6 +92,7 @@ interface AgentTownContextValue {
   myHouseType: number;
   uiTheme: UiTheme;
   language: AppLanguage;
+  threadLanguageById: Record<string, ThreadDisplayLanguage>;
   voiceModeEnabled: boolean;
   bootstrapReady: boolean;
   updateBotConfig: (next: BotConfig) => void;
@@ -97,6 +102,7 @@ interface AgentTownContextValue {
   updateHouseType: (next: number) => void;
   updateUiTheme: (next: UiTheme) => void;
   updateLanguage: (next: AppLanguage) => void;
+  updateThreadLanguage: (threadId: string, next: ThreadDisplayLanguage) => Promise<void>;
   updateVoiceModeEnabled: (next: boolean) => void;
   refreshAll: () => Promise<void>;
   refreshThreadMessages: (threadId: string) => Promise<void>;
@@ -162,6 +168,23 @@ interface AgentTownContextValue {
 const MESSAGE_PAGE_SIZE = 10;
 const MESSAGE_RENDER_WINDOW = 160;
 const MESSAGE_CACHE_LIMIT = 2000;
+const THREAD_LANGUAGE_STORAGE_PREFIX = "agenttown.thread.display.language";
+
+function isThreadDisplayLanguage(value: unknown): value is ThreadDisplayLanguage {
+  return value === "zh" || value === "en" || value === "de";
+}
+
+function normalizeThreadLanguageMap(value: unknown): Record<string, ThreadDisplayLanguage> {
+  if (!value || typeof value !== "object") return {};
+  const normalized: Record<string, ThreadDisplayLanguage> = {};
+  for (const [threadId, language] of Object.entries(value as Record<string, unknown>)) {
+    const id = threadId.trim();
+    if (!id) continue;
+    if (!isThreadDisplayLanguage(language)) continue;
+    normalized[id] = language;
+  }
+  return normalized;
+}
 
 function safeThreadKey(threadId: string) {
   return threadId.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -170,6 +193,10 @@ function safeThreadKey(threadId: string) {
 function safeUserKey(userId: string) {
   const key = userId.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
   return key || "anonymous";
+}
+
+function threadLanguageStorageKey(userId: string) {
+  return `${THREAD_LANGUAGE_STORAGE_PREFIX}:${safeUserKey(userId)}`;
 }
 
 function cacheDir() {
@@ -461,9 +488,38 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
   const [myHouseType, setMyHouseType] = useState<number>(3);
   const [uiTheme, setUiTheme] = useState<UiTheme>("neo");
   const [language, setLanguage] = useState<AppLanguage>("en");
+  const [threadLanguageById, setThreadLanguageById] = useState<Record<string, ThreadDisplayLanguage>>({});
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const notificationSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const persistThreadLanguageMap = useCallback(
+    async (next: Record<string, ThreadDisplayLanguage>) => {
+      if (!isSignedIn || !userID) return;
+      try {
+        await AsyncStorage.setItem(threadLanguageStorageKey(userID), JSON.stringify(next));
+      } catch {
+        // Ignore persistence failure.
+      }
+    },
+    [isSignedIn, userID]
+  );
+
+  const patchThreadLanguageMap = useCallback(
+    (
+      patcher: (
+        previous: Record<string, ThreadDisplayLanguage>
+      ) => Record<string, ThreadDisplayLanguage>
+    ) => {
+      setThreadLanguageById((previous) => {
+        const next = patcher(previous);
+        if (next === previous) return previous;
+        void persistThreadLanguageMap(next);
+        return next;
+      });
+    },
+    [persistThreadLanguageMap]
+  );
 
   const refreshAll = useCallback(async () => {
     const [bootstrapResult, threadsResult] = await Promise.allSettled([
@@ -533,7 +589,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     if (payload?.uiTheme === "classic" || payload?.uiTheme === "neo") {
       setUiTheme(payload.uiTheme);
     }
-    if (payload?.language === "zh" || payload?.language === "en") {
+    if (payload?.language === "zh" || payload?.language === "en" || payload?.language === "de") {
       setLanguage(payload.language);
     }
     if (typeof payload?.voiceModeEnabled === "boolean") {
@@ -547,6 +603,118 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       throw bootstrapResult.reason;
     }
   }, []);
+
+  const updateThreadLanguage = useCallback(
+    async (threadId: string, next: ThreadDisplayLanguage) => {
+      const id = threadId.trim();
+      if (!id || !isThreadDisplayLanguage(next)) return;
+      patchThreadLanguageMap((previous) => {
+        if (previous[id] === next) return previous;
+        return {
+          ...previous,
+          [id]: next,
+        };
+      });
+      try {
+        const response = await updateThreadDisplayLanguageApi(id, next);
+        if (isThreadDisplayLanguage(response.language)) {
+          patchThreadLanguageMap((previous) => {
+            if (previous[id] === response.language) return previous;
+            return {
+              ...previous,
+              [id]: response.language,
+            };
+          });
+        }
+      } catch {
+        // Keep local fallback preference when backend persistence fails.
+      }
+    },
+    [patchThreadLanguageMap]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isSignedIn || !userID) {
+      setThreadLanguageById({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(threadLanguageStorageKey(userID));
+        if (cancelled) return;
+        if (!raw) {
+          setThreadLanguageById({});
+          return;
+        }
+        const parsed = JSON.parse(raw) as unknown;
+        const normalized = normalizeThreadLanguageMap(parsed);
+        setThreadLanguageById(normalized);
+      } catch {
+        if (!cancelled) {
+          setThreadLanguageById({});
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, userID]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isSignedIn || !userID) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const threadIds = chatThreads
+      .map((item) => item.id?.trim() || "")
+      .filter(Boolean)
+      .slice(0, 40);
+    if (threadIds.length === 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    (async () => {
+      const remoteMap: Record<string, ThreadDisplayLanguage> = {};
+      await Promise.all(
+        threadIds.map(async (threadId) => {
+          try {
+            const pref = await getThreadDisplayLanguageApi(threadId);
+            if (isThreadDisplayLanguage(pref.language)) {
+              remoteMap[threadId] = pref.language;
+            }
+          } catch {
+            // Ignore per-thread fetch failure.
+          }
+        })
+      );
+      if (cancelled || Object.keys(remoteMap).length === 0) return;
+      patchThreadLanguageMap((previous) => {
+        const next = { ...previous };
+        let changed = false;
+        for (const [threadId, language] of Object.entries(remoteMap)) {
+          if (next[threadId] === language) continue;
+          next[threadId] = language;
+          changed = true;
+        }
+        return changed ? next : previous;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chatThreads, isSignedIn, patchThreadLanguageMap, userID]);
 
   const refreshThreadMessages = useCallback(async (threadId: string) => {
     if (!threadId) return;
@@ -696,6 +864,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       setCustomSkills(defaultCustomSkills);
       setMiniApps(defaultMiniApps);
       setMiniAppTemplates(defaultMiniAppTemplates);
+      setThreadLanguageById({});
       setBootstrapReady(true);
       return () => {
         cancelled = true;
@@ -779,6 +948,12 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             return next;
           });
           setFriends((prev) => prev.filter((item) => item.threadId !== threadId));
+          patchThreadLanguageMap((previous) => {
+            if (!(threadId in previous)) return previous;
+            const next = { ...previous };
+            delete next[threadId];
+            return next;
+          });
           break;
         }
         case "chat.message.created": {
@@ -855,6 +1030,12 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             });
             setThreadMembers((prev) => {
               const next = { ...prev };
+              delete next[removedThreadID];
+              return next;
+            });
+            patchThreadLanguageMap((previous) => {
+              if (!(removedThreadID in previous)) return previous;
+              const next = { ...previous };
               delete next[removedThreadID];
               return next;
             });
@@ -976,7 +1157,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     return () => {
       unsubscribe();
     };
-  }, [isE2E, isSignedIn, userID]);
+  }, [isE2E, isSignedIn, patchThreadLanguageMap, userID]);
 
   const value = useMemo<AgentTownContextValue>(() => {
     return {
@@ -995,6 +1176,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       myHouseType,
       uiTheme,
       language,
+      threadLanguageById,
       voiceModeEnabled,
       bootstrapReady,
       updateBotConfig: (next) => {
@@ -1040,6 +1222,12 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
           return next;
         });
         setFriends((prev) => prev.filter((item) => item.threadId !== threadId));
+        patchThreadLanguageMap((previous) => {
+          if (!(threadId in previous)) return previous;
+          const next = { ...previous };
+          delete next[threadId];
+          return next;
+        });
         try {
           await deleteChatThreadApi(threadId);
         } catch {
@@ -1049,6 +1237,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       updateHouseType: setMyHouseType,
       updateUiTheme: setUiTheme,
       updateLanguage: setLanguage,
+      updateThreadLanguage,
       updateVoiceModeEnabled: setVoiceModeEnabled,
       refreshAll,
       refreshThreadMessages,
@@ -1147,6 +1336,12 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
           delete historyCursorByThreadRef.current[linkedThreadID];
           setThreadMembers((prev) => {
             const next = { ...prev };
+            delete next[linkedThreadID];
+            return next;
+          });
+          patchThreadLanguageMap((previous) => {
+            if (!(linkedThreadID in previous)) return previous;
+            const next = { ...previous };
             delete next[linkedThreadID];
             return next;
           });
@@ -1558,12 +1753,15 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     miniAppGeneration,
     miniApps,
     myHouseType,
+    patchThreadLanguageMap,
     refreshAll,
     refreshThreadMessages,
     skillCatalog,
     tasks,
+    threadLanguageById,
     threadMembers,
     uiTheme,
+    updateThreadLanguage,
     voiceModeEnabled,
     userID,
   ]);
