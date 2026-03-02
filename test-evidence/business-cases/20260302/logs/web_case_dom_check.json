@@ -1,0 +1,50 @@
+[
+  {
+    "case": "dm-1v1",
+    "thread_id": "qadm03011208",
+    "url": "http://127.0.0.1:8081/chat/qadm03011208?name=QA%20LIVE%20DM%201v1&isGroup=false",
+    "hasInput": true,
+    "hasLoadError": true,
+    "hasExpectedName": true
+  },
+  {
+    "case": "multi-party",
+    "thread_id": "qamp03011208",
+    "url": "http://127.0.0.1:8081/chat/qamp03011208?name=QA%20LIVE%20Multi%20Party&isGroup=true",
+    "hasInput": true,
+    "hasLoadError": true,
+    "hasExpectedName": true
+  },
+  {
+    "case": "group-chat",
+    "thread_id": "qagp03011208",
+    "url": "http://127.0.0.1:8081/chat/qagp03011208?name=QA%20LIVE%20Group%20Chat&isGroup=true",
+    "hasInput": true,
+    "hasLoadError": true,
+    "hasExpectedName": true
+  },
+  {
+    "case": "translate",
+    "thread_id": "qatr03011208",
+    "url": "http://127.0.0.1:8081/chat/qatr03011208?name=QA%20LIVE%20Translate&isGroup=false",
+    "hasInput": true,
+    "hasLoadError": true,
+    "hasExpectedName": true
+  },
+  {
+    "case": "bot",
+    "thread_id": "mybot",
+    "url": "http://127.0.0.1:8081/chat/mybot?name=MyBot&isGroup=false",
+    "hasInput": true,
+    "hasLoadError": true,
+    "hasExpectedName": true
+  },
+  {
+    "case": "npc",
+    "thread_id": "qanp03011208",
+    "url": "http://127.0.0.1:8081/chat/qanp03011208?name=QA%20LIVE%20NPC&isGroup=false",
+    "hasInput": true,
+    "hasLoadError": true,
+    "hasExpectedName": true
+  }
+]

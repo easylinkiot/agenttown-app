@@ -1,0 +1,44 @@
+[
+  {
+    "case": "dm-1v1",
+    "thread_id": "qadm03011208",
+    "hasLoadError": false,
+    "hasInput": true,
+    "screenshot": "/Users/jason/Github/agent-ai-space/agenttown-app/test-evidence/business-cases/20260302-fixed/web/uat-dm-1v1-live-web-20260302.png"
+  },
+  {
+    "case": "multi-party",
+    "thread_id": "qamp03011208",
+    "hasLoadError": false,
+    "hasInput": true,
+    "screenshot": "/Users/jason/Github/agent-ai-space/agenttown-app/test-evidence/business-cases/20260302-fixed/web/uat-multi-party-live-web-20260302.png"
+  },
+  {
+    "case": "group-chat",
+    "thread_id": "qagp03011208",
+    "hasLoadError": false,
+    "hasInput": true,
+    "screenshot": "/Users/jason/Github/agent-ai-space/agenttown-app/test-evidence/business-cases/20260302-fixed/web/uat-group-chat-live-web-20260302.png"
+  },
+  {
+    "case": "translate",
+    "thread_id": "qatr03011208",
+    "hasLoadError": false,
+    "hasInput": true,
+    "screenshot": "/Users/jason/Github/agent-ai-space/agenttown-app/test-evidence/business-cases/20260302-fixed/web/uat-translate-live-web-20260302.png"
+  },
+  {
+    "case": "bot",
+    "thread_id": "mybot",
+    "hasLoadError": false,
+    "hasInput": true,
+    "screenshot": "/Users/jason/Github/agent-ai-space/agenttown-app/test-evidence/business-cases/20260302-fixed/web/uat-bot-live-web-20260302.png"
+  },
+  {
+    "case": "npc",
+    "thread_id": "qanp03011208",
+    "hasLoadError": false,
+    "hasInput": true,
+    "screenshot": "/Users/jason/Github/agent-ai-space/agenttown-app/test-evidence/business-cases/20260302-fixed/web/uat-npc-live-web-20260302.png"
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "case": "dm-1v1",
+    "thread_id": "qadm03011208",
+    "http_status": 200,
+    "message_count": 2
+  },
+  {
+    "case": "multi-party",
+    "thread_id": "qamp03011208",
+    "http_status": 200,
+    "message_count": 5
+  },
+  {
+    "case": "group-chat",
+    "thread_id": "qagp03011208",
+    "http_status": 200,
+    "message_count": 4
+  },
+  {
+    "case": "translate",
+    "thread_id": "qatr03011208",
+    "http_status": 200,
+    "message_count": 4
+  },
+  {
+    "case": "bot",
+    "thread_id": "mybot",
+    "http_status": 200,
+    "message_count": 6
+  },
+  {
+    "case": "npc",
+    "thread_id": "qanp03011208",
+    "http_status": 200,
+    "message_count": 3
+  }
+]

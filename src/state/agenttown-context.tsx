@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Platform } from "react-native";
 
 import { DEFAULT_MYBOT_AVATAR } from "@/src/constants/chat";
 import {
@@ -200,9 +201,15 @@ function threadLanguageStorageKey(userId: string) {
 }
 
 function cacheDir() {
-  const base = FileSystem.Paths?.document?.uri;
-  if (!base) return null;
-  return `${base}agenttown_cache/messages`;
+  // expo-file-system document paths are not stable on web; disable file cache there.
+  if (Platform.OS === "web") return null;
+  try {
+    const base = FileSystem.Paths?.document?.uri;
+    if (!base) return null;
+    return `${base}agenttown_cache/messages`;
+  } catch {
+    return null;
+  }
 }
 
 async function ensureCacheDir() {
@@ -226,9 +233,9 @@ function cachePath(userId: string, threadId: string) {
 }
 
 async function readThreadCache(userId: string, threadId: string): Promise<ConversationMessage[] | null> {
-  const path = cachePath(userId, threadId);
-  if (!path) return null;
   try {
+    const path = cachePath(userId, threadId);
+    if (!path) return null;
     const info = await FileSystem.getInfoAsync(path);
     if (!info.exists) return null;
     const raw = await FileSystem.readAsStringAsync(path);
@@ -241,11 +248,11 @@ async function readThreadCache(userId: string, threadId: string): Promise<Conver
 }
 
 async function writeThreadCache(userId: string, threadId: string, messages: ConversationMessage[]) {
-  const dir = await ensureCacheDir();
-  const path = cachePath(userId, threadId);
-  if (!dir || !path) return;
-  const next = messages.length > MESSAGE_CACHE_LIMIT ? messages.slice(-MESSAGE_CACHE_LIMIT) : messages;
   try {
+    const dir = await ensureCacheDir();
+    const path = cachePath(userId, threadId);
+    if (!dir || !path) return;
+    const next = messages.length > MESSAGE_CACHE_LIMIT ? messages.slice(-MESSAGE_CACHE_LIMIT) : messages;
     await FileSystem.writeAsStringAsync(path, JSON.stringify(next));
   } catch {
     // ignore
