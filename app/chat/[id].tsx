@@ -61,7 +61,14 @@ import {
 } from "@/src/services/chatAssist";
 import { useAgentTown } from "@/src/state/agenttown-context";
 import { useAuth } from "@/src/state/auth-context";
-import { Agent, ChatThread, ConversationMessage, Friend, ThreadMember } from "@/src/types";
+import {
+  Agent,
+  ChatThread,
+  ConversationMessage,
+  Friend,
+  ThreadDisplayLanguage,
+  ThreadMember,
+} from "@/src/types";
 import { isE2ETestMode } from "@/src/utils/e2e";
 
 type MemberFilter = "all" | "human" | "agent" | "role";
@@ -117,12 +124,18 @@ const MEDIA_SHEET_ANIM_DURATION = 220;
 const MEDIA_SHEET_DRAG_CLOSE_DISTANCE = 120;
 const MEDIA_GRID_MIN_ITEM_SIZE = 80;
 const MEDIA_GRID_GAP = 8;
+const AUTO_TRANSLATE_BATCH_SIZE = 24;
 const PLUS_PANEL_ITEMS: PlusPanelItem[] = [
   { key: "image", icon: "image-outline", zh: "图片", en: "Image" },
   { key: "video", icon: "videocam-outline", zh: "视频", en: "Video" },
   { key: "camera", icon: "camera-outline", zh: "相机", en: "Camera" },
   { key: "voice", icon: "mic-outline", zh: "语音", en: "Voice" },
   { key: "contact", icon: "person-circle-outline", zh: "个人名片", en: "Contact Card" },
+];
+const THREAD_LANGUAGE_OPTIONS: { key: ThreadDisplayLanguage; label: string }[] = [
+  { key: "zh", label: "中" },
+  { key: "en", label: "En" },
+  { key: "de", label: "De" },
 ];
 
 function formatMediaDuration(totalSeconds?: number) {
@@ -204,6 +217,25 @@ function normalizeDisplayedContent(content: string, senderName?: string) {
     }
   }
   return text;
+}
+
+function isPlaceholderTranslationText(
+  candidate: string,
+  source: string,
+  targetLanguage: ThreadDisplayLanguage
+) {
+  const text = (candidate || "").trim();
+  const src = (source || "").trim();
+  if (!text) return false;
+  const textLower = text.toLowerCase();
+  const srcLower = src.toLowerCase();
+  if (srcLower && textLower === srcLower) return true;
+  const prefix = `[${String(targetLanguage || "en").toLowerCase()}]`;
+  if (textLower.startsWith(prefix)) {
+    const rest = textLower.slice(prefix.length).trim();
+    if (srcLower && rest === srcLower) return true;
+  }
+  return textLower.includes("[agenttown-fallback]");
 }
 
 function extractSessionIdFromSSEPayload(payload: unknown) {
@@ -290,6 +322,7 @@ export default function ChatDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isWideDesktopWeb = Platform.OS === "web" && windowWidth >= 1280;
   const { user } = useAuth();
   const isDraggingRef = useRef(false);
   const bubbleHeightsRef = useRef<Record<string, number>>({});
@@ -312,6 +345,7 @@ export default function ChatDetailScreen() {
     agents,
     botConfig,
     language,
+    threadLanguageById,
     refreshThreadMessages,
     loadOlderMessages,
     sendMessage,
@@ -322,10 +356,12 @@ export default function ChatDetailScreen() {
     removeFriend,
     removeChatThread,
     generateRoleReplies,
+    updateThreadLanguage,
   } = useAgentTown();
   const messagesByThreadRef = useRef(messagesByThread);
 
   const tr = (zh: string, en: string) => tx(language, zh, en);
+  const threadDisplayLanguage: ThreadDisplayLanguage = threadLanguageById[chatId] || language || "en";
 
   const openEntityConfig = useCallback(
     (entity: { entityType: "human" | "bot" | "npc"; entityId?: string; name?: string; avatar?: string }) => {
@@ -1078,7 +1114,7 @@ export default function ChatDetailScreen() {
         return;
       }
       router.push({
-        pathname: "/chat/media-picker",
+        pathname: "./media-picker",
         params: {
           chatId,
         },
@@ -1196,6 +1232,7 @@ export default function ChatDetailScreen() {
     setLoadingOlder(false);
     setPendingMessages([]);
     setHasUserScrolled(false);
+    setShowOriginalByMessageId({});
     closeMediaSheet({ clearSelection: true, duration: 0 });
   }, [chatId, closeMediaSheet]);
 
@@ -1308,12 +1345,24 @@ export default function ChatDetailScreen() {
   const [askAI, setAskAI] = useState("");
   const [askAICandidates, setAskAICandidates] = useState<AssistCandidate[]>([]);
   const [askAISelectedIndex, setAskAISelectedIndex] = useState(0);
-  const [askAIAction, setAskAIAction] = useState<ChatAssistAction>("ask_anything");
+  const [askAIAction, setAskAIAction] = useState<ChatAssistAction>("auto_reply");
+  const [askAIActionArmed, setAskAIActionArmed] = useState(false);
+  const [askAIMoreMenuOpen, setAskAIMoreMenuOpen] = useState(false);
   const [askAIError, setAskAIError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [translationRefreshToken, setTranslationRefreshToken] = useState(0);
+  const [translatedByMessageId, setTranslatedByMessageId] = useState<
+    Record<string, Partial<Record<ThreadDisplayLanguage, string>>>
+  >({});
+  const [showOriginalByMessageId, setShowOriginalByMessageId] = useState<Record<string, boolean>>({});
+  const translatedByMessageIdRef = useRef<Record<string, Partial<Record<ThreadDisplayLanguage, string>>>>({});
   const askAIAbortRef = useRef<AbortController | null>(null);
   const askAIRequestSeqRef = useRef(0);
   const askAIMountedRef = useRef(true);
+  const askAIAutoRunKeyRef = useRef("");
+  const autoTranslateAbortRef = useRef<AbortController | null>(null);
+  const autoTranslateRequestSeqRef = useRef(0);
+  const autoTranslatePendingRef = useRef<Set<string>>(new Set());
   const [myBotPanel, setMyBotPanel] = useState(false);
   const [memberNameListModal, setMemberNameListModal] = useState(false);
   const [myBotQuestion, setMyBotQuestion] = useState("");
@@ -1714,15 +1763,23 @@ export default function ChatDetailScreen() {
   }, []);
 
   useEffect(() => {
+    translatedByMessageIdRef.current = translatedByMessageId;
+  }, [translatedByMessageId]);
+
+  useEffect(() => {
     askAIMountedRef.current = true;
     return () => {
       askAIMountedRef.current = false;
       abortAskAIStream();
+      autoTranslateAbortRef.current?.abort();
+      autoTranslateAbortRef.current = null;
     };
   }, [abortAskAIStream]);
 
   const closeActionModal = useCallback(() => {
     abortAskAIStream();
+    setAskAIMoreMenuOpen(false);
+    setAskAIActionArmed(false);
     setActionModal(false);
   }, [abortAskAIStream]);
 
@@ -1766,6 +1823,9 @@ export default function ChatDetailScreen() {
         assistRequest.input = inlineInput;
       } else if ((action === "translate" || action === "follow_up") && inlineInput) {
         assistRequest.input = inlineInput;
+      }
+      if (action === "translate") {
+        assistRequest.target_language = threadDisplayLanguage;
       }
 
       try {
@@ -1838,7 +1898,17 @@ export default function ChatDetailScreen() {
         setIsStreaming(false);
       }
     },
-    [abortAskAIStream, actionMessage, askAI, chatId, isStreaming, thread.targetId, thread.targetType, tr]
+    [
+      abortAskAIStream,
+      actionMessage,
+      askAI,
+      chatId,
+      isStreaming,
+      thread.targetId,
+      thread.targetType,
+      threadDisplayLanguage,
+      tr,
+    ]
   );
 
   const handleLongPress = (message: ConversationMessage) => {
@@ -1848,7 +1918,9 @@ export default function ChatDetailScreen() {
     setAskAICandidates([]);
     setAskAISelectedIndex(0);
     setAskAIError(null);
-    setAskAIAction("ask_anything");
+    setAskAIAction("auto_reply");
+    setAskAIActionArmed(false);
+    setAskAIMoreMenuOpen(false);
     setIsStreaming(false);
     setActionAnchor(null);
     setActionModal(true);
@@ -1862,7 +1934,9 @@ export default function ChatDetailScreen() {
     setAskAICandidates([]);
     setAskAISelectedIndex(0);
     setAskAIError(null);
-    setAskAIAction("ask_anything");
+    setAskAIAction("auto_reply");
+    setAskAIActionArmed(false);
+    setAskAIMoreMenuOpen(false);
     setIsStreaming(false);
     if (ev?.nativeEvent) {
       const h = bubbleHeightsRef.current[message.id] || 56;
@@ -1878,10 +1952,6 @@ export default function ChatDetailScreen() {
       setActionAnchor(null);
     }
     setActionModal(true);
-  };
-
-  const runAskAI = async () => {
-    await runAssistGeneration("ask_anything");
   };
 
   const runGroupMyBot = async () => {
@@ -1968,26 +2038,143 @@ export default function ChatDetailScreen() {
     }
   };
 
-  const runAddToTask = async () => {
-    await runAssistGeneration("add_task");
-  };
+  useEffect(() => {
+    if (!chatId) return;
+    if (messages.length === 0) return;
 
-  const runReplyDraft = async () => {
-    await runAssistGeneration("auto_reply");
-  };
+    const targetLanguage = threadDisplayLanguage;
+    const queuedMessages = messages
+      .slice(-AUTO_TRANSLATE_BATCH_SIZE)
+      .filter((message) => {
+        const messageId = (message.id || "").trim();
+        const content = (message.content || "").trim();
+        const type = (message.type || "").trim().toLowerCase();
+        if (!messageId || !content) return false;
+        if (type === "system" || type === "voice" || type === "image") return false;
+        const existingTranslation = (translatedByMessageIdRef.current[messageId]?.[targetLanguage] || "").trim();
+        if (existingTranslation && !isPlaceholderTranslationText(existingTranslation, content, targetLanguage)) return false;
+        if (autoTranslatePendingRef.current.has(`${messageId}:${targetLanguage}`)) return false;
+        return true;
+      });
 
-  const runTranslate = async () => {
-    await runAssistGeneration("translate");
-  };
+    if (queuedMessages.length === 0) return;
 
-  const runFollowUp = async () => {
-    await runAssistGeneration("follow_up");
-  };
+    autoTranslateAbortRef.current?.abort();
+    const controller = new AbortController();
+    autoTranslateAbortRef.current = controller;
+    const requestSeq = ++autoTranslateRequestSeqRef.current;
 
-  const applySelectedCandidate = () => {
+    const run = async () => {
+      for (const message of queuedMessages) {
+        if (controller.signal.aborted) return;
+        if (requestSeq !== autoTranslateRequestSeqRef.current) return;
+
+        const messageId = (message.id || "").trim();
+        const content = (message.content || "").trim();
+        if (!messageId || !content) continue;
+
+        const requestKey = `${messageId}:${targetLanguage}`;
+        if (autoTranslatePendingRef.current.has(requestKey)) continue;
+        autoTranslatePendingRef.current.add(requestKey);
+
+        let latestCandidates: AssistCandidate[] = [];
+        try {
+          const assistRequest: ChatAssistRequest = {
+            action: "translate",
+            selected_message_id: messageId,
+            selected_message_content: content,
+            target_language: targetLanguage,
+          };
+
+          await runChatAssist(
+            assistRequest,
+            {
+              onCandidates: (next) => {
+                latestCandidates = next;
+              },
+            },
+            controller.signal
+          );
+
+          if (controller.signal.aborted) return;
+          if (requestSeq !== autoTranslateRequestSeqRef.current) return;
+
+          const translatedText = (
+            latestCandidates.find((candidate) => candidate.kind === "translate" && candidate.text.trim())?.text ||
+            latestCandidates.find((candidate) => candidate.text.trim())?.text ||
+            ""
+          ).trim();
+
+          if (!translatedText) continue;
+
+          setTranslatedByMessageId((previous) => {
+            const previousText = (previous[messageId]?.[targetLanguage] || "").trim();
+            if (previousText === translatedText) return previous;
+            return {
+              ...previous,
+              [messageId]: {
+                ...(previous[messageId] || {}),
+                [targetLanguage]: translatedText,
+              },
+            };
+          });
+          setShowOriginalByMessageId((previous) => ({
+            ...previous,
+            [messageId]: false,
+          }));
+        } catch {
+          if (controller.signal.aborted) return;
+        } finally {
+          autoTranslatePendingRef.current.delete(requestKey);
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      controller.abort();
+      if (autoTranslateAbortRef.current === controller) {
+        autoTranslateAbortRef.current = null;
+      }
+    };
+  }, [chatId, messages, threadDisplayLanguage, translationRefreshToken]);
+
+  useEffect(() => {
+    if (!actionModal || !actionMessage) {
+      askAIAutoRunKeyRef.current = "";
+      return;
+    }
+    if (!askAIActionArmed) return;
+    const hint = askAI.trim();
+    const runKey = `${actionMessage.id}|${askAIAction}|${hint}`;
+    if (runKey === askAIAutoRunKeyRef.current) return;
+    if (askAIAction === "ask_anything" && !hint) {
+      askAIAutoRunKeyRef.current = runKey;
+      abortAskAIStream();
+      setAskAIError(null);
+      setAskAICandidates([]);
+      setAskAISelectedIndex(0);
+      setIsStreaming(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      askAIAutoRunKeyRef.current = runKey;
+      void runAssistGeneration(askAIAction);
+    }, 260);
+    return () => clearTimeout(timer);
+  }, [abortAskAIStream, actionMessage, actionModal, askAI, askAIAction, askAIActionArmed, runAssistGeneration]);
+
+  const applySelectedCandidate = (candidateIndex?: number) => {
     if (isStreaming) return;
     if (askAICandidates.length === 0) return;
-    const index = Math.max(0, Math.min(askAISelectedIndex, askAICandidates.length - 1));
+    const index = Math.max(
+      0,
+      Math.min(
+        typeof candidateIndex === "number" ? candidateIndex : askAISelectedIndex,
+        askAICandidates.length - 1
+      )
+    );
     const picked = askAICandidates[index];
     const text = (picked?.text || "").trim();
     if (!text) return;
@@ -1998,6 +2185,23 @@ export default function ChatDetailScreen() {
         const mention = `@${targetName}`;
         const hasMentionPrefix = text.toLowerCase().startsWith(mention.toLowerCase());
         setInput(hasMentionPrefix ? text : `${mention} ${text}`);
+      } else {
+        setInput(text);
+      }
+    } else if (askAIAction === "translate" && actionMessage) {
+      const messageId = (actionMessage.id || "").trim();
+      if (messageId) {
+        setTranslatedByMessageId((prev) => ({
+          ...prev,
+          [messageId]: {
+            ...(prev[messageId] || {}),
+            [threadDisplayLanguage]: text,
+          },
+        }));
+        setShowOriginalByMessageId((prev) => ({
+          ...prev,
+          [messageId]: false,
+        }));
       } else {
         setInput(text);
       }
@@ -2119,7 +2323,15 @@ export default function ChatDetailScreen() {
       const meFinal = isCurrentUserMessage(raw, actorID);
       const highlighted = highlightMessageId !== "" && raw.id === highlightMessageId;
       const streamText = streamingById[raw.id];
-      const displayText = normalizeDisplayedContent((streamText ?? raw.content) || "", raw.senderName);
+      const sourceText = normalizeDisplayedContent((streamText ?? raw.content) || "", raw.senderName);
+      const translatedRawText = (translatedByMessageId[raw.id]?.[threadDisplayLanguage] || "").trim();
+      const translatedText = isPlaceholderTranslationText(translatedRawText, sourceText, threadDisplayLanguage)
+        ? ""
+        : translatedRawText;
+      const hasTranslatedText = !streamText && translatedText !== "";
+      const displayText = hasTranslatedText ? translatedText : sourceText;
+      const canToggleOriginal = hasTranslatedText && sourceText !== "" && sourceText !== displayText;
+      const originalVisible = Boolean(showOriginalByMessageId[raw.id]);
       const ownAvatar = (user?.avatar || botConfig.avatar || "").trim();
       const avatarTag = meFinal ? null : inferAvatarTagFromSender(raw);
       const avatarEntityType: "human" | "bot" | "npc" = meFinal
@@ -2178,6 +2390,29 @@ export default function ChatDetailScreen() {
             ) : null}
             {displayText ? (
               <Text style={[styles.msgText, meFinal && styles.msgTextMe]}>{displayText}</Text>
+            ) : null}
+            {canToggleOriginal ? (
+              <Pressable
+                onPress={() =>
+                  setShowOriginalByMessageId((prev) => ({
+                    ...prev,
+                    [raw.id]: !prev[raw.id],
+                  }))
+                }
+                style={styles.originalToggle}
+              >
+                <Text style={[styles.originalToggleText, meFinal && styles.originalToggleTextMe]}>
+                  {originalVisible ? tr("隐藏原文", "Hide original") : tr("查看原文", "Original")}
+                </Text>
+              </Pressable>
+            ) : null}
+            {canToggleOriginal && originalVisible ? (
+              <View style={styles.originalWrap}>
+                <Text style={[styles.originalLabel, meFinal && styles.originalLabelMe]}>
+                  {tr("原文", "Original")}
+                </Text>
+                <Text style={[styles.originalText, meFinal && styles.originalTextMe]}>{sourceText}</Text>
+              </View>
             ) : null}
           </View>
         );
@@ -2248,6 +2483,9 @@ export default function ChatDetailScreen() {
       highlightMessageId,
       openEntityConfig,
       streamingById,
+      threadDisplayLanguage,
+      translatedByMessageId,
+      showOriginalByMessageId,
       thread.avatar,
       tr,
       user?.avatar,
@@ -2256,17 +2494,14 @@ export default function ChatDetailScreen() {
   );
 
   const ContainerView = Animated.View;
-  const containerStyle = [styles.container, { paddingBottom: keyboardPadding }];
-  const askAICanGenerate =
-    Boolean(actionMessage) &&
-    !isStreaming &&
-    (askAIAction !== "ask_anything" || Boolean(askAI.trim()));
-  const askAICanApply = !isStreaming && askAICandidates.length > 0;
-  const askAIGenerateLabel = isStreaming
-    ? tr("生成中...", "Generating...")
-    : askAICandidates.length > 0
-      ? tr("重新生成", "Regenerate")
-      : tr("生成", "Generate");
+  const containerStyle = [
+    styles.container,
+    isWideDesktopWeb ? styles.containerWide : null,
+    { paddingBottom: keyboardPadding },
+  ];
+  const chatBodyStyle = [styles.chatBody, isWideDesktopWeb ? styles.chatBodyWide : null];
+  const askAIActionIsOverflow =
+    askAIAction === "ask_anything" || askAIAction === "translate" || askAIAction === "follow_up";
   const canAbortMyBotSend = myBotStreaming && isMyBotChatThreadId(chatId);
   const sendDisabled = canAbortMyBotSend ? false : submitting || !input.trim();
   const mediaSendDisabled = mediaSending || selectedAssets.length === 0;
@@ -2332,28 +2567,42 @@ export default function ChatDetailScreen() {
   }, [handleTogglePlusPanel]);
 
   const renderToolbarComposer = useCallback(
-    (props: ComposerProps) => (
-      <View style={styles.inputBox}>
-        <Composer
-          {...props}
-          textInputStyle={styles.input}
-          placeholderTextColor="rgba(148,163,184,0.9)"
-          textInputProps={{
-            ...(props?.textInputProps || {}),
-            testID: "chat-message-input",
-            onFocus: (event) => {
-              props?.textInputProps?.onFocus?.(event);
-              handleChatInputFocus();
-            },
-            onBlur: (event) => {
-              props?.textInputProps?.onBlur?.(event);
-              handleChatInputBlur();
-            },
-          }}
-        />
-      </View>
-    ),
-    [handleChatInputBlur, handleChatInputFocus]
+    (props: ComposerProps) => {
+      const upstreamOnFocus = props?.textInputProps?.onFocus;
+      const upstreamOnBlur = props?.textInputProps?.onBlur;
+      const upstreamOnChangeText = props?.textInputProps?.onChangeText as ((value: string) => void) | undefined;
+      return (
+        <View style={styles.inputBox}>
+          <Composer
+            {...props}
+            textInputStyle={styles.input}
+            placeholderTextColor="rgba(148,163,184,0.9)"
+            textInputProps={{
+              ...(props?.textInputProps || {}),
+              testID: "chat-message-input",
+              showSoftInputOnFocus: true,
+              editable: !isStreaming,
+              maxLength: 4000,
+              onChangeText: (value: string) => {
+                // Keep GiftedChat pipeline, but also force local draft sync as fallback.
+                props.onTextChanged?.(value);
+                upstreamOnChangeText?.(value);
+                setInput(value);
+              },
+              onFocus: (event) => {
+                upstreamOnFocus?.(event);
+                handleChatInputFocus();
+              },
+              onBlur: (event) => {
+                upstreamOnBlur?.(event);
+                handleChatInputBlur();
+              },
+            }}
+          />
+        </View>
+      );
+    },
+    [handleChatInputBlur, handleChatInputFocus, isStreaming]
   );
 
   const renderToolbarSend = useCallback(() => {
@@ -2463,6 +2712,26 @@ export default function ChatDetailScreen() {
             </View>
           </View>
 
+          <View style={styles.threadLanguageRow}>
+            {THREAD_LANGUAGE_OPTIONS.map((item) => {
+              const active = threadDisplayLanguage === item.key;
+              return (
+                <Pressable
+                  key={item.key}
+                  style={[styles.threadLanguageChip, active && styles.threadLanguageChipActive]}
+                  onPress={() => {
+                    setTranslationRefreshToken((prev) => prev + 1);
+                    void updateThreadLanguage(chatId, item.key);
+                  }}
+                >
+                  <Text style={[styles.threadLanguageChipText, active && styles.threadLanguageChipTextActive]}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           {failedDraft ? (
             <StateBanner
               variant="error"
@@ -2489,7 +2758,7 @@ export default function ChatDetailScreen() {
             />
           ) : null}
 
-          <View style={styles.chatBody}>
+          <View style={chatBodyStyle}>
             {loading ? (
               <LoadingSkeleton kind="messages" />
             ) : (
@@ -2511,7 +2780,7 @@ export default function ChatDetailScreen() {
                 messagesContainerStyle={styles.messageContainer}
                 listViewProps={
                   {
-                    keyboardShouldPersistTaps: "never",
+                    keyboardShouldPersistTaps: "handled",
                     onEndReachedThreshold: 0.2,
                     onEndReached: () => void requestOlder(),
                     onScrollBeginDrag: () => {
@@ -2723,44 +2992,6 @@ export default function ChatDetailScreen() {
               onLayout={(e) => setAiCardHeight(e.nativeEvent.layout.height)}
               onPress={() => null}
             >
-              <View style={styles.aiModeRow}>
-                <Pressable
-                  style={[styles.aiModeBtn, askAIAction === "ask_anything" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("ask_anything")}
-                  disabled={isStreaming}
-                >
-                  <Text style={styles.aiModeBtnText}>{tr("问答", "Ask")}</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.aiModeBtn, askAIAction === "auto_reply" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("auto_reply")}
-                  disabled={isStreaming}
-                >
-                  <Text style={styles.aiModeBtnText}>{tr("回复", "Reply")}</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.aiModeBtn, askAIAction === "add_task" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("add_task")}
-                  disabled={isStreaming}
-                >
-                  <Text style={styles.aiModeBtnText}>{tr("任务", "Task")}</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.aiModeBtn, askAIAction === "translate" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("translate")}
-                  disabled={isStreaming}
-                >
-                  <Text style={styles.aiModeBtnText}>{tr("翻译", "Translate")}</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.aiModeBtn, askAIAction === "follow_up" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("follow_up")}
-                  disabled={isStreaming}
-                >
-                  <Text style={styles.aiModeBtnText}>{tr("跟进", "Follow-up")}</Text>
-                </Pressable>
-              </View>
-
               <View style={styles.aiAskRow}>
                 <Ionicons name="sparkles-outline" size={16} color="rgba(191,219,254,0.95)" />
                 <TextInput
@@ -2774,6 +3005,95 @@ export default function ChatDetailScreen() {
                   editable={!isStreaming}
                 />
               </View>
+              <View style={styles.aiModeRow}>
+                <Pressable
+                  style={[styles.aiModeBtn, askAIAction === "auto_reply" && styles.aiModeBtnActive]}
+                  onPress={() => {
+                    setAskAIActionArmed(true);
+                    setAskAIAction("auto_reply");
+                    setAskAIMoreMenuOpen(false);
+                  }}
+                  disabled={isStreaming}
+                >
+                  <Text style={styles.aiModeBtnText}>{tr("回复", "Reply")}</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.aiModeBtn, askAIAction === "add_task" && styles.aiModeBtnActive]}
+                  onPress={() => {
+                    setAskAIActionArmed(true);
+                    setAskAIAction("add_task");
+                    setAskAIMoreMenuOpen(false);
+                  }}
+                  disabled={isStreaming}
+                >
+                  <Text style={styles.aiModeBtnText}>{tr("任务", "Task")}</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.aiModeBtn,
+                    styles.aiModeMoreBtn,
+                    (askAIActionIsOverflow || askAIMoreMenuOpen) && styles.aiModeBtnActive,
+                  ]}
+                  onPress={() => setAskAIMoreMenuOpen((prev) => !prev)}
+                  disabled={isStreaming}
+                >
+                  <Ionicons name="ellipsis-horizontal" size={16} color="rgba(226,232,240,0.94)" />
+                </Pressable>
+              </View>
+              {askAIMoreMenuOpen ? (
+                <View style={styles.aiModeMoreMenu}>
+                  <Pressable
+                    style={[styles.aiModeMoreItem, askAIAction === "ask_anything" && styles.aiModeMoreItemActive]}
+                    onPress={() => {
+                      setAskAIActionArmed(true);
+                      setAskAIAction("ask_anything");
+                      setAskAIMoreMenuOpen(false);
+                    }}
+                    disabled={isStreaming}
+                  >
+                    <Text style={styles.aiModeMoreItemText}>{tr("问答", "Ask")}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.aiModeMoreItem,
+                      styles.aiModeMoreItemDivider,
+                      askAIAction === "translate" && styles.aiModeMoreItemActive,
+                    ]}
+                    onPress={() => {
+                      setAskAIActionArmed(true);
+                      setAskAIAction("translate");
+                      setAskAIMoreMenuOpen(false);
+                    }}
+                    disabled={isStreaming}
+                  >
+                    <Text style={styles.aiModeMoreItemText}>{tr("翻译", "Translate")}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.aiModeMoreItem,
+                      styles.aiModeMoreItemDivider,
+                      askAIAction === "follow_up" && styles.aiModeMoreItemActive,
+                    ]}
+                    onPress={() => {
+                      setAskAIActionArmed(true);
+                      setAskAIAction("follow_up");
+                      setAskAIMoreMenuOpen(false);
+                    }}
+                    disabled={isStreaming}
+                  >
+                    <Text style={styles.aiModeMoreItemText}>{tr("跟进", "Follow-up")}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.aiModeMoreItem, styles.aiModeMoreItemDivider]}
+                    onPress={() => {
+                      setAskAIMoreMenuOpen(false);
+                      closeActionModal();
+                    }}
+                  >
+                    <Text style={styles.aiModeMoreItemText}>{tr("取消", "Cancel")}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
 
               {askAIError ? <Text style={styles.aiError}>{askAIError}</Text> : null}
               {isStreaming ? <Text style={styles.aiHint}>{tr("生成中...", "Generating...")}</Text> : null}
@@ -2781,7 +3101,7 @@ export default function ChatDetailScreen() {
               <ScrollView style={styles.aiCandidatesList} contentContainerStyle={styles.aiCandidatesListContent}>
                 {askAICandidates.length === 0 ? (
                   <Text style={styles.aiHint}>
-                    {tr("生成后可在这里选择候选内容。", "Generated candidates will appear here.")}
+                    {tr("候选内容将自动生成，点击即可填入消息输入框。", "Candidates are generated automatically. Tap one to fill the message input.")}
                   </Text>
                 ) : (
                   askAICandidates.map((candidate, index) => (
@@ -2791,7 +3111,10 @@ export default function ChatDetailScreen() {
                         styles.aiCandidateItem,
                         askAISelectedIndex === index && styles.aiCandidateItemSelected,
                       ]}
-                      onPress={() => setAskAISelectedIndex(index)}
+                      onPress={() => {
+                        setAskAISelectedIndex(index);
+                        applySelectedCandidate(index);
+                      }}
                       disabled={isStreaming}
                     >
                       {(candidate.kind === "task" || candidate.kind === "follow_up") && candidate.title ? (
@@ -2809,37 +3132,6 @@ export default function ChatDetailScreen() {
                 )}
               </ScrollView>
 
-              <View style={styles.aiButtonsRow}>
-                <Pressable
-                  style={[styles.aiBtn, !askAICanGenerate && styles.aiBtnDisabled]}
-                  onPress={() => {
-                    if (askAIAction === "ask_anything") {
-                      void runAskAI();
-                    } else if (askAIAction === "auto_reply") {
-                      void runReplyDraft();
-                    } else if (askAIAction === "translate") {
-                      void runTranslate();
-                    } else if (askAIAction === "follow_up") {
-                      void runFollowUp();
-                    } else {
-                      void runAddToTask();
-                    }
-                  }}
-                  disabled={!askAICanGenerate}
-                >
-                  <Text style={styles.aiBtnText}>{askAIGenerateLabel}</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.aiBtn, styles.aiBtnSecondary, !askAICanApply && styles.aiBtnDisabled]}
-                  onPress={applySelectedCandidate}
-                  disabled={!askAICanApply}
-                >
-                  <Text style={styles.aiBtnText}>{tr("采用", "Adopt")}</Text>
-                </Pressable>
-                <Pressable style={[styles.aiBtn, styles.aiBtnSecondary]} onPress={closeActionModal}>
-                  <Text style={styles.aiBtnText}>{tr("取消", "Cancel")}</Text>
-                </Pressable>
-              </View>
             </AnimatedPressable>
           </Pressable>
         </Modal>
@@ -3283,6 +3575,11 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     gap: 10,
   },
+  containerWide: {
+    width: "100%",
+    maxWidth: 1360,
+    alignSelf: "center",
+  },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -3312,6 +3609,37 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  threadLanguageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: -2,
+    marginBottom: 2,
+    paddingLeft: 52,
+  },
+  threadLanguageChip: {
+    minWidth: 34,
+    height: 26,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.36)",
+    backgroundColor: "rgba(30,41,59,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  threadLanguageChipActive: {
+    borderColor: "rgba(147,197,253,0.75)",
+    backgroundColor: "rgba(30,64,175,0.45)",
+  },
+  threadLanguageChipText: {
+    color: "rgba(226,232,240,0.88)",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  threadLanguageChipTextActive: {
+    color: "#f8fafc",
+  },
   headerActions: {
     flexDirection: "row",
     gap: 10,
@@ -3333,6 +3661,11 @@ const styles = StyleSheet.create({
   chatBody: {
     flex: 1,
     marginTop: 4,
+  },
+  chatBodyWide: {
+    width: "100%",
+    maxWidth: 860,
+    alignSelf: "center",
   },
   messageContainer: {
     flex: 1,
@@ -3487,6 +3820,44 @@ const styles = StyleSheet.create({
   },
   msgTextMe: {
     color: "#f8fafc",
+  },
+  originalToggle: {
+    alignSelf: "flex-start",
+    marginTop: 2,
+  },
+  originalToggleText: {
+    color: "rgba(191,219,254,0.95)",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  originalToggleTextMe: {
+    color: "rgba(219,234,254,0.98)",
+  },
+  originalWrap: {
+    marginTop: 2,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(148,163,184,0.28)",
+    gap: 4,
+  },
+  originalLabel: {
+    color: "rgba(148,163,184,0.95)",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  originalLabelMe: {
+    color: "rgba(191,219,254,0.95)",
+  },
+  originalText: {
+    color: "rgba(203,213,225,0.94)",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  originalTextMe: {
+    color: "rgba(224,242,254,0.95)",
   },
   time: {
     color: "rgba(148,163,184,0.9)",
@@ -3830,12 +4201,11 @@ const styles = StyleSheet.create({
   },
   aiModeRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: 8,
   },
   aiModeBtn: {
-    flexGrow: 1,
-    flexBasis: "30%",
+    flex: 1,
     minHeight: 34,
     borderRadius: 12,
     borderWidth: 1,
@@ -3847,6 +4217,41 @@ const styles = StyleSheet.create({
   aiModeBtnActive: {
     backgroundColor: "rgba(59,130,246,0.30)",
     borderColor: "rgba(147,197,253,0.62)",
+  },
+  aiModeMoreBtn: {
+    flex: 0,
+    width: 40,
+    paddingHorizontal: 0,
+  },
+  aiModeMoreMenu: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(2,6,23,0.72)",
+    overflow: "hidden",
+  },
+  aiModeMoreItem: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+  },
+  aiModeMoreItemDivider: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.09)",
+  },
+  aiModeMoreItemActive: {
+    backgroundColor: "rgba(59,130,246,0.24)",
+  },
+  aiModeMoreItemDisabled: {
+    opacity: 0.56,
+  },
+  aiModeMoreItemText: {
+    color: "rgba(226,232,240,0.94)",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  aiModeMoreItemTextDisabled: {
+    color: "rgba(148,163,184,0.92)",
   },
   aiModeBtnText: {
     color: "rgba(226,232,240,0.94)",
@@ -3910,31 +4315,6 @@ const styles = StyleSheet.create({
     color: "rgba(148,163,184,0.95)",
     fontSize: 12,
     fontWeight: "700",
-  },
-  aiButtonsRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  aiBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-  },
-  aiBtnSecondary: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-  },
-  aiBtnDisabled: {
-    opacity: 0.6,
-  },
-  aiBtnText: {
-    color: "rgba(226,232,240,0.92)",
-    fontSize: 13,
-    fontWeight: "900",
   },
   aiError: {
     color: "rgba(248,113,113,0.95)",

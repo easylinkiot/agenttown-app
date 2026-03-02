@@ -500,6 +500,7 @@ export default function SignInScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>{tr("账号密码登录", "Email & Password")}</Text>
           <TextInput
+            testID="auth-email-input"
             style={styles.input}
             value={email}
             onChangeText={setEmail}
@@ -508,6 +509,7 @@ export default function SignInScreen() {
             autoCapitalize="none"
           />
           <TextInput
+            testID="auth-password-input"
             style={styles.input}
             value={password}
             onChangeText={setPassword}
@@ -526,7 +528,7 @@ export default function SignInScreen() {
             <Pressable
               style={[styles.ghostBtn, busyKey !== null && styles.btnDisabled]}
               disabled={busyKey !== null}
-              onPress={() => router.push("/forgot-password")}
+              onPress={() => router.push("./forgot-password")}
             >
               <Text style={styles.ghostBtnText}>{tr("忘记密码？", "Forgot Password?")}</Text>
             </Pressable>
@@ -542,6 +544,7 @@ export default function SignInScreen() {
             </Pressable>
           ) : null}
           <Pressable
+            testID="auth-password-login-button"
             style={[styles.primaryBtn, busyKey !== null && styles.btnDisabled]}
             disabled={busyKey !== null}
             onPress={handlePasswordSignIn}

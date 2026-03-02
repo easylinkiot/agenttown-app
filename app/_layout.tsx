@@ -16,10 +16,11 @@ function RootStack() {
 
   useEffect(() => {
     if (!isHydrated) return;
+    const firstSegment = String(segments[0] || "");
     const inAuthRoute =
-      segments[0] === "sign-in" ||
-      segments[0] === "sign-up" ||
-      segments[0] === "forgot-password";
+      firstSegment === "sign-in" ||
+      firstSegment === "sign-up" ||
+      firstSegment === "forgot-password";
     if (!isSignedIn && !inAuthRoute) {
       router.replace("/sign-in");
       return;

@@ -45,6 +45,7 @@ import { tx } from "@/src/i18n/translate";
 import { generateGeminiText } from "@/src/lib/gemini";
 import { getThemeTokens } from "@/src/theme/ui-theme";
 import { useAgentTown } from "@/src/state/agenttown-context";
+import { AppLanguage } from "@/src/types";
 
 interface TownMapMessage {
   role: "user" | "model" | "system";
@@ -113,8 +114,8 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function buildWorldIdea(seed: number, language: "zh" | "en") {
-  if (language === "en") {
+function buildWorldIdea(seed: number, language: AppLanguage) {
+  if (language !== "zh") {
     const identities = [
       "Office worker",
       "Student",
@@ -164,7 +165,7 @@ function buildWorldIdea(seed: number, language: "zh" | "en") {
 }
 
 function buildInitialWorldGroupMessages(
-  language: "zh" | "en",
+  language: AppLanguage,
   botName: string,
   botAvatar: string
 ): WorldGroupMessage[] {

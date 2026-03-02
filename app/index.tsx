@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   ActivityIndicator,
   FlatList,
   Image,
@@ -24,6 +25,7 @@ import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
 import { tx } from "@/src/i18n/translate";
 import {
   acceptFriendRequest,
+  ApiError,
   atCreateSession,
   createFriendQR,
   discoverUsers,
@@ -34,7 +36,7 @@ import {
   scanFriendQR,
   type DiscoverUser,
 } from "@/src/lib/api";
-import { useAgentTown } from "@/src/state/agenttown-context";
+import { isMyBotThreadId, useAgentTown } from "@/src/state/agenttown-context";
 import { useAuth } from "@/src/state/auth-context";
 import { ChatThread, FriendRequest } from "@/src/types";
 
@@ -93,6 +95,7 @@ export default function HomeScreen() {
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [requestActionId, setRequestActionId] = useState<string | null>(null);
+  const [pendingInviteByUserId, setPendingInviteByUserId] = useState<Record<string, true>>({});
   const [qrToken, setQrToken] = useState("");
   const [qrExpiresAt, setQrExpiresAt] = useState("");
   const [scanToken, setScanToken] = useState("");
@@ -108,7 +111,7 @@ export default function HomeScreen() {
   const [refreshingChats, setRefreshingChats] = useState(false);
 
   const list = useMemo(() => {
-    const sorted = [...chatThreads];
+    const sorted = chatThreads.filter((thread) => !isMyBotThreadId(thread.id));
     sorted.sort((a, b) => {
       const au = a.unreadCount || 0;
       const bu = b.unreadCount || 0;
@@ -203,14 +206,31 @@ export default function HomeScreen() {
       try {
         const list = await listFriendRequests();
         if (!cancelled) {
+          const actorUserID = (user?.id || "").trim();
+          const outgoingPending: Record<string, true> = {};
+          if (Array.isArray(list)) {
+            for (const req of list) {
+              if ((req.status || "").trim() !== "pending") continue;
+              if ((req.fromUserId || "").trim() !== actorUserID) continue;
+              const toUserID = (req.toUserId || "").trim();
+              if (!toUserID) continue;
+              outgoingPending[toUserID] = true;
+            }
+          }
           const incoming = Array.isArray(list)
-            ? list.filter((req) => req.status === "pending" && req.toUserId === (user?.id || ""))
+            ? list.filter(
+                (req) =>
+                  (req.status || "").trim() === "pending" &&
+                  (req.toUserId || "").trim() === actorUserID
+              )
             : [];
           setFriendRequests(incoming);
+          setPendingInviteByUserId((prev) => ({ ...prev, ...outgoingPending }));
         }
       } catch (err) {
         if (!cancelled) {
           setFriendRequests([]);
+          setPendingInviteByUserId({});
           setUiError(formatApiError(err));
         }
       } finally {
@@ -224,6 +244,12 @@ export default function HomeScreen() {
       cancelled = true;
     };
   }, [friendModal, user?.id]);
+
+  useEffect(() => {
+    if (!friendModal) {
+      setPendingInviteByUserId({});
+    }
+  }, [friendModal]);
 
   const handleOpenThread = useCallback(
     async (thread: ChatThread) => {
@@ -336,21 +362,59 @@ export default function HomeScreen() {
   );
 
   const handleCreateFriend = async (candidate: DiscoverUser) => {
-    if (!candidate?.id || addingUserId) return;
+    const candidateID = (candidate?.id || "").trim();
+    if (!candidateID || addingUserId) return;
+    if (pendingInviteByUserId[candidateID]) return;
     setUiError(null);
-    setAddingUserId(candidate.id);
+    setAddingUserId(candidateID);
 
     try {
-      await createFriend({
-        userId: candidate.id,
+      const created = await createFriend({
+        userId: candidateID,
         name: candidate.displayName,
         kind: "human",
       });
-      setFriendQuery("");
-      const list = await discoverUsers("");
-      setFriendCandidates(Array.isArray(list) ? list : []);
+      if (created) {
+        setPendingInviteByUserId((prev) => {
+          if (!(candidateID in prev)) return prev;
+          const next = { ...prev };
+          delete next[candidateID];
+          return next;
+        });
+        setFriendQuery("");
+        const list = await discoverUsers("");
+        setFriendCandidates(Array.isArray(list) ? list : []);
+      } else {
+        setPendingInviteByUserId((prev) => ({
+          ...prev,
+          [candidateID]: true,
+        }));
+        Alert.alert(
+          tr("邀请已发送", "Invite sent"),
+          tr(
+            "已发送好友邀请，等待对方接受后会出现在好友列表。",
+            "Friend request sent. It will appear in your friends list after they accept."
+          )
+        );
+      }
     } catch (err) {
-      setUiError(formatApiError(err));
+      const pendingCode = err instanceof ApiError ? (err.code || "").toLowerCase() : "";
+      const pendingMsg = err instanceof ApiError ? (err.message || "").toLowerCase() : "";
+      if (pendingCode.includes("request_pending") || pendingMsg.includes("already pending")) {
+        setPendingInviteByUserId((prev) => ({
+          ...prev,
+          [candidateID]: true,
+        }));
+        Alert.alert(
+          tr("邀请已发送", "Invite sent"),
+          tr(
+            "该好友邀请已在等待处理中，需对方接受后才会出现在好友列表。",
+            "This friend request is already pending. It will appear after the other user accepts."
+          )
+        );
+      } else {
+        setUiError(formatApiError(err));
+      }
     } finally {
       setAddingUserId(null);
     }
@@ -535,6 +599,7 @@ export default function HomeScreen() {
             <LoadingSkeleton kind="chat_list" />
           ) : (
             <FlatList
+              testID="home-chat-list"
               data={list}
               keyExtractor={(item) => item.id}
               style={styles.chatList}
@@ -579,7 +644,9 @@ export default function HomeScreen() {
                 <Ionicons name="add" size={18} color="rgba(226,232,240,0.92)" />
               </Pressable>
               {presence.length
-                ? presence.map((item) => (
+                ? presence
+                  .filter((item) => item.badge !== "Bot")
+                  .map((item) => (
                   <Pressable
                     key={item.id}
                     style={styles.presenceItem}
@@ -778,39 +845,50 @@ export default function HomeScreen() {
                   </View>
                 ) : friendCandidates.length ? (
                   <ScrollView showsVerticalScrollIndicator={false}>
-                    {friendCandidates.map((candidate) => (
-                      <Pressable
-                        key={candidate.id}
-                        style={styles.candidateItem}
-                        disabled={Boolean(addingUserId)}
-                        onPress={() => handleCreateFriend(candidate)}
-                      >
+                    {friendCandidates.map((candidate) => {
+                      const candidateID = (candidate.id || "").trim();
+                      if (!candidateID) return null;
+                      const isPendingInvite = Boolean(pendingInviteByUserId[candidateID]);
+                      return (
                         <Pressable
-                          onPress={(e) => {
-                            e.stopPropagation?.();
-                            openEntityConfig({
-                              entityType: "human",
-                              entityId: candidate.id,
-                              name: candidate.displayName,
-                              avatar: candidate.avatar,
-                            });
-                          }}
+                          key={candidateID}
+                          style={styles.candidateItem}
+                          disabled={Boolean(addingUserId) || isPendingInvite}
+                          onPress={() => handleCreateFriend(candidate)}
                         >
-                          <Image source={{ uri: candidate.avatar }} style={styles.candidateAvatar} />
+                          <Pressable
+                            onPress={(e) => {
+                              e.stopPropagation?.();
+                              openEntityConfig({
+                                entityType: "human",
+                                entityId: candidateID,
+                                name: candidate.displayName,
+                                avatar: candidate.avatar,
+                              });
+                            }}
+                          >
+                            <Image source={{ uri: candidate.avatar }} style={styles.candidateAvatar} />
+                          </Pressable>
+                          <View style={styles.candidateBody}>
+                            <Text numberOfLines={1} style={styles.candidateName}>
+                              {candidate.displayName}
+                            </Text>
+                            <Text numberOfLines={1} style={styles.candidateMeta}>
+                              {isPendingInvite
+                                ? tr("邀请已发送，等待对方接受", "Invite sent, waiting for acceptance")
+                                : candidate.email || candidate.provider}
+                            </Text>
+                          </View>
+                          <Text style={[styles.candidateAction, isPendingInvite && styles.candidateActionPending]}>
+                            {addingUserId === candidateID
+                              ? tr("添加中...", "Adding...")
+                              : isPendingInvite
+                                ? tr("待接受", "Pending")
+                                : tr("添加", "Add")}
+                          </Text>
                         </Pressable>
-                        <View style={styles.candidateBody}>
-                          <Text numberOfLines={1} style={styles.candidateName}>
-                            {candidate.displayName}
-                          </Text>
-                          <Text numberOfLines={1} style={styles.candidateMeta}>
-                            {candidate.email || candidate.provider}
-                          </Text>
-                        </View>
-                        <Text style={styles.candidateAction}>
-                          {addingUserId === candidate.id ? tr("添加中...", "Adding...") : tr("添加", "Add")}
-                        </Text>
-                      </Pressable>
-                    ))}
+                      );
+                    })}
                   </ScrollView>
                 ) : (
                   <Text style={styles.candidateEmpty}>
@@ -1321,6 +1399,9 @@ const styles = StyleSheet.create({
     color: "#bfdbfe",
     fontSize: 12,
     fontWeight: "900",
+  },
+  candidateActionPending: {
+    color: "rgba(148,163,184,0.95)",
   },
   candidateEmpty: {
     color: "rgba(148,163,184,0.92)",

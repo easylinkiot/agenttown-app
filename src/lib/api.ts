@@ -13,6 +13,7 @@ import {
   RealtimeEvent,
   SkillCatalogItem,
   TaskItem,
+  ThreadDisplayLanguage,
   ThreadMember,
   ThreadMemberType,
 } from "@/src/types";
@@ -72,6 +73,12 @@ export interface CreateTaskFromMessageInput {
   assignee?: string;
   priority?: "High" | "Medium" | "Low";
   dueAt?: string;
+}
+
+export interface ThreadDisplayLanguagePreferenceResponse {
+  thread_id: string;
+  language: ThreadDisplayLanguage;
+  updated_at?: string;
 }
 
 export interface PatchTaskInput {
@@ -677,6 +684,22 @@ export async function deleteChatThread(threadId: string) {
   });
 }
 
+export async function getThreadDisplayLanguage(threadId: string) {
+  return apiFetch<ThreadDisplayLanguagePreferenceResponse>(
+    `/v1/chat/threads/${encodeURIComponent(threadId)}/display-language`
+  );
+}
+
+export async function updateThreadDisplayLanguage(threadId: string, language: ThreadDisplayLanguage) {
+  return apiFetch<ThreadDisplayLanguagePreferenceResponse>(
+    `/v1/chat/threads/${encodeURIComponent(threadId)}/display-language`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ language }),
+    }
+  );
+}
+
 export async function atCreateSession(payload: ATCreateSessionInput): Promise<ATSession> {
   const created = await apiFetch<ChatThread>("/v1/chat/threads", {
     method: "POST",
@@ -1029,7 +1052,14 @@ export async function executeCustomSkill(skillId: string, payload: ExecuteCustom
 }
 
 export async function listMiniApps() {
-  return apiFetch<MiniApp[]>("/v1/miniapps");
+  const payload = await apiFetch<MiniApp[] | { list?: MiniApp[] }>("/v1/miniapps");
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (payload && Array.isArray(payload.list)) {
+    return payload.list;
+  }
+  return [];
 }
 
 export async function listMiniAppTemplates() {

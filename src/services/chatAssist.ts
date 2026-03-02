@@ -17,6 +17,7 @@ export interface ChatAssistRequest {
   question?: string;
   target_type?: string;
   target_id?: string;
+  target_language?: "zh" | "en" | "de";
   selected_message_id?: string;
   selected_message_content?: string;
   session_id?: string;

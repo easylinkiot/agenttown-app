@@ -14,7 +14,7 @@ import {
   setAuthToken,
 } from "@/src/lib/api";
 import { AuthUser } from "@/src/types";
-import { isE2ETestMode } from "@/src/utils/e2e";
+import { getE2ELaunchArgs, isE2ETestMode } from "@/src/utils/e2e";
 
 export type AuthMethod = "guest" | "google" | "apple" | "phone" | "password";
 
@@ -133,6 +133,15 @@ function mapBackendUser(input: {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isE2E = isE2ETestMode();
+  const e2eArgs = getE2ELaunchArgs();
+  const e2eAuthEmailFromArgs =
+    typeof e2eArgs?.e2eAuthEmail === "string" ? e2eArgs.e2eAuthEmail.trim() : "";
+  const e2eAuthPasswordFromArgs =
+    typeof e2eArgs?.e2eAuthPassword === "string" ? e2eArgs.e2eAuthPassword : "";
+  const e2eAuthEmailFromEnv = (process.env.EXPO_PUBLIC_E2E_AUTH_EMAIL || "").trim();
+  const e2eAuthPasswordFromEnv = process.env.EXPO_PUBLIC_E2E_AUTH_PASSWORD || "";
+  const e2eAuthEmail = e2eAuthEmailFromArgs || e2eAuthEmailFromEnv;
+  const e2eAuthPassword = e2eAuthPasswordFromArgs || e2eAuthPasswordFromEnv;
   const [isHydrated, setIsHydrated] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -163,6 +172,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
+        if (e2eAuthEmail && e2eAuthPassword) {
+          try {
+            const session = await authLogin({
+              email: e2eAuthEmail,
+              password: e2eAuthPassword,
+            });
+            if (!alive) return;
+            await applySession({
+              token: session.token,
+              user: mapBackendUser(session.user),
+            });
+            return;
+          } catch {
+            // Fall back to persisted session if E2E credentials fail.
+          }
+        }
+
         const raw = await AsyncStorage.getItem(SESSION_KEY);
         if (!raw) return;
 
@@ -202,7 +228,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [applySession, isE2E]);
+  }, [applySession, e2eAuthEmail, e2eAuthPassword, isE2E]);
 
   const signInAsGuest = useCallback(async () => {
     if (isE2E) {

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { DEFAULT_MYBOT_AVATAR } from "@/src/constants/chat";
 import { AppLanguage, ChatThread, UiTheme } from "@/src/types";
 
 interface ChatListItemProps {
@@ -26,6 +27,17 @@ function inferAvatarTag(chat: ChatThread): "NPC" | "Bot" | null {
   return null;
 }
 
+function resolveAvatarUri(chat: ChatThread) {
+  const avatar = (chat.avatar || "").trim();
+  if (avatar) return avatar;
+  const id = (chat.id || "").trim().toLowerCase();
+  const name = (chat.name || "").trim().toLowerCase();
+  if (id === "mybot" || id === "agent_mybot" || id.startsWith("agent_userbot_") || name === "mybot") {
+    return DEFAULT_MYBOT_AVATAR;
+  }
+  return "";
+}
+
 export function ChatListItem({
   chat,
   onPress,
@@ -35,6 +47,7 @@ export function ChatListItem({
 }: ChatListItemProps) {
   const isNeo = theme === "neo";
   const avatarTag = inferAvatarTag(chat);
+  const avatarUri = resolveAvatarUri(chat);
   const preview = chat.isVoiceCall
     ? language === "zh"
       ? "[语音通话]"
@@ -42,7 +55,11 @@ export function ChatListItem({
     : chat.message;
 
   return (
-    <Pressable style={[styles.container, isNeo && styles.containerNeo]} onPress={onPress}>
+    <Pressable
+      testID={`chat-list-item-${chat.id}`}
+      style={[styles.container, isNeo && styles.containerNeo]}
+      onPress={onPress}
+    >
       {onAvatarPress ? (
         <Pressable
           style={styles.avatarWrap}
@@ -51,7 +68,13 @@ export function ChatListItem({
             onAvatarPress(chat);
           }}
         >
-          <Image source={{ uri: chat.avatar }} style={[styles.avatar, isNeo && styles.avatarNeo]} />
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={[styles.avatar, isNeo && styles.avatarNeo]} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarFallback, isNeo && styles.avatarNeo]}>
+              <Ionicons name="person-outline" size={18} color="rgba(226,232,240,0.82)" />
+            </View>
+          )}
           {avatarTag ? (
             <View style={[styles.avatarTag, avatarTag === "NPC" ? styles.avatarTagNpc : styles.avatarTagBot]}>
               <Text style={styles.avatarTagText}>{avatarTag}</Text>
@@ -65,7 +88,13 @@ export function ChatListItem({
         </Pressable>
       ) : (
         <View style={styles.avatarWrap}>
-          <Image source={{ uri: chat.avatar }} style={[styles.avatar, isNeo && styles.avatarNeo]} />
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={[styles.avatar, isNeo && styles.avatarNeo]} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarFallback, isNeo && styles.avatarNeo]}>
+              <Ionicons name="person-outline" size={18} color="rgba(226,232,240,0.82)" />
+            </View>
+          )}
           {avatarTag ? (
             <View style={[styles.avatarTag, avatarTag === "NPC" ? styles.avatarTagNpc : styles.avatarTagBot]}>
               <Text style={styles.avatarTagText}>{avatarTag}</Text>
@@ -174,6 +203,11 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 12,
     backgroundColor: "#d1d5db",
+  },
+  avatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(148,163,184,0.45)",
   },
   avatarNeo: {
     width: 46,

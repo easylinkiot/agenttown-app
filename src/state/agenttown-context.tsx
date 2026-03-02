@@ -1,5 +1,7 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Platform } from "react-native";
 
 import { DEFAULT_MYBOT_AVATAR } from "@/src/constants/chat";
 import {
@@ -25,6 +27,7 @@ import {
   listThreadMessages as listThreadMessagesApi,
   listChatThreads as listChatThreadsApi,
   listChatSessionMessages as listChatSessionMessagesApi,
+  getThreadDisplayLanguage as getThreadDisplayLanguageApi,
   patchCustomSkill as patchCustomSkillApi,
   patchTask as patchTaskApi,
   queryChatTargetHistory as queryChatTargetHistoryApi,
@@ -34,6 +37,7 @@ import {
   sendThreadMessage as sendThreadMessageApi,
   subscribeRealtime,
   toggleAgentSkill as toggleAgentSkillApi,
+  updateThreadDisplayLanguage as updateThreadDisplayLanguageApi,
   uninstallBotSkill as uninstallBotSkillApi,
   mapATMessageToConversation,
   mapATSessionToThread,
@@ -56,6 +60,7 @@ import {
   RealtimeEvent,
   SkillCatalogItem,
   TaskItem,
+  ThreadDisplayLanguage,
   ThreadMember,
   UiTheme,
 } from "@/src/types";
@@ -88,6 +93,7 @@ interface AgentTownContextValue {
   myHouseType: number;
   uiTheme: UiTheme;
   language: AppLanguage;
+  threadLanguageById: Record<string, ThreadDisplayLanguage>;
   voiceModeEnabled: boolean;
   bootstrapReady: boolean;
   updateBotConfig: (next: BotConfig) => void;
@@ -97,6 +103,7 @@ interface AgentTownContextValue {
   updateHouseType: (next: number) => void;
   updateUiTheme: (next: UiTheme) => void;
   updateLanguage: (next: AppLanguage) => void;
+  updateThreadLanguage: (threadId: string, next: ThreadDisplayLanguage) => Promise<void>;
   updateVoiceModeEnabled: (next: boolean) => void;
   refreshAll: () => Promise<void>;
   refreshThreadMessages: (threadId: string) => Promise<void>;
@@ -162,6 +169,23 @@ interface AgentTownContextValue {
 const MESSAGE_PAGE_SIZE = 10;
 const MESSAGE_RENDER_WINDOW = 160;
 const MESSAGE_CACHE_LIMIT = 2000;
+const THREAD_LANGUAGE_STORAGE_PREFIX = "agenttown.thread.display.language";
+
+function isThreadDisplayLanguage(value: unknown): value is ThreadDisplayLanguage {
+  return value === "zh" || value === "en" || value === "de";
+}
+
+function normalizeThreadLanguageMap(value: unknown): Record<string, ThreadDisplayLanguage> {
+  if (!value || typeof value !== "object") return {};
+  const normalized: Record<string, ThreadDisplayLanguage> = {};
+  for (const [threadId, language] of Object.entries(value as Record<string, unknown>)) {
+    const id = threadId.trim();
+    if (!id) continue;
+    if (!isThreadDisplayLanguage(language)) continue;
+    normalized[id] = language;
+  }
+  return normalized;
+}
 
 function safeThreadKey(threadId: string) {
   return threadId.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -172,10 +196,20 @@ function safeUserKey(userId: string) {
   return key || "anonymous";
 }
 
+function threadLanguageStorageKey(userId: string) {
+  return `${THREAD_LANGUAGE_STORAGE_PREFIX}:${safeUserKey(userId)}`;
+}
+
 function cacheDir() {
-  const base = FileSystem.Paths?.document?.uri;
-  if (!base) return null;
-  return `${base}agenttown_cache/messages`;
+  // expo-file-system document paths are not stable on web; disable file cache there.
+  if (Platform.OS === "web") return null;
+  try {
+    const base = FileSystem.Paths?.document?.uri;
+    if (!base) return null;
+    return `${base}agenttown_cache/messages`;
+  } catch {
+    return null;
+  }
 }
 
 async function ensureCacheDir() {
@@ -199,9 +233,9 @@ function cachePath(userId: string, threadId: string) {
 }
 
 async function readThreadCache(userId: string, threadId: string): Promise<ConversationMessage[] | null> {
-  const path = cachePath(userId, threadId);
-  if (!path) return null;
   try {
+    const path = cachePath(userId, threadId);
+    if (!path) return null;
     const info = await FileSystem.getInfoAsync(path);
     if (!info.exists) return null;
     const raw = await FileSystem.readAsStringAsync(path);
@@ -214,11 +248,11 @@ async function readThreadCache(userId: string, threadId: string): Promise<Conver
 }
 
 async function writeThreadCache(userId: string, threadId: string, messages: ConversationMessage[]) {
-  const dir = await ensureCacheDir();
-  const path = cachePath(userId, threadId);
-  if (!dir || !path) return;
-  const next = messages.length > MESSAGE_CACHE_LIMIT ? messages.slice(-MESSAGE_CACHE_LIMIT) : messages;
   try {
+    const dir = await ensureCacheDir();
+    const path = cachePath(userId, threadId);
+    if (!dir || !path) return;
+    const next = messages.length > MESSAGE_CACHE_LIMIT ? messages.slice(-MESSAGE_CACHE_LIMIT) : messages;
     await FileSystem.writeAsStringAsync(path, JSON.stringify(next));
   } catch {
     // ignore
@@ -461,9 +495,38 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
   const [myHouseType, setMyHouseType] = useState<number>(3);
   const [uiTheme, setUiTheme] = useState<UiTheme>("neo");
   const [language, setLanguage] = useState<AppLanguage>("en");
+  const [threadLanguageById, setThreadLanguageById] = useState<Record<string, ThreadDisplayLanguage>>({});
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const notificationSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const persistThreadLanguageMap = useCallback(
+    async (next: Record<string, ThreadDisplayLanguage>) => {
+      if (!isSignedIn || !userID) return;
+      try {
+        await AsyncStorage.setItem(threadLanguageStorageKey(userID), JSON.stringify(next));
+      } catch {
+        // Ignore persistence failure.
+      }
+    },
+    [isSignedIn, userID]
+  );
+
+  const patchThreadLanguageMap = useCallback(
+    (
+      patcher: (
+        previous: Record<string, ThreadDisplayLanguage>
+      ) => Record<string, ThreadDisplayLanguage>
+    ) => {
+      setThreadLanguageById((previous) => {
+        const next = patcher(previous);
+        if (next === previous) return previous;
+        void persistThreadLanguageMap(next);
+        return next;
+      });
+    },
+    [persistThreadLanguageMap]
+  );
 
   const refreshAll = useCallback(async () => {
     const [bootstrapResult, threadsResult] = await Promise.allSettled([
@@ -533,7 +596,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     if (payload?.uiTheme === "classic" || payload?.uiTheme === "neo") {
       setUiTheme(payload.uiTheme);
     }
-    if (payload?.language === "zh" || payload?.language === "en") {
+    if (payload?.language === "zh" || payload?.language === "en" || payload?.language === "de") {
       setLanguage(payload.language);
     }
     if (typeof payload?.voiceModeEnabled === "boolean") {
@@ -547,6 +610,118 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       throw bootstrapResult.reason;
     }
   }, []);
+
+  const updateThreadLanguage = useCallback(
+    async (threadId: string, next: ThreadDisplayLanguage) => {
+      const id = threadId.trim();
+      if (!id || !isThreadDisplayLanguage(next)) return;
+      patchThreadLanguageMap((previous) => {
+        if (previous[id] === next) return previous;
+        return {
+          ...previous,
+          [id]: next,
+        };
+      });
+      try {
+        const response = await updateThreadDisplayLanguageApi(id, next);
+        if (isThreadDisplayLanguage(response.language)) {
+          patchThreadLanguageMap((previous) => {
+            if (previous[id] === response.language) return previous;
+            return {
+              ...previous,
+              [id]: response.language,
+            };
+          });
+        }
+      } catch {
+        // Keep local fallback preference when backend persistence fails.
+      }
+    },
+    [patchThreadLanguageMap]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isSignedIn || !userID) {
+      setThreadLanguageById({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(threadLanguageStorageKey(userID));
+        if (cancelled) return;
+        if (!raw) {
+          setThreadLanguageById({});
+          return;
+        }
+        const parsed = JSON.parse(raw) as unknown;
+        const normalized = normalizeThreadLanguageMap(parsed);
+        setThreadLanguageById(normalized);
+      } catch {
+        if (!cancelled) {
+          setThreadLanguageById({});
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, userID]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isSignedIn || !userID) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const threadIds = chatThreads
+      .map((item) => item.id?.trim() || "")
+      .filter(Boolean)
+      .slice(0, 40);
+    if (threadIds.length === 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    (async () => {
+      const remoteMap: Record<string, ThreadDisplayLanguage> = {};
+      await Promise.all(
+        threadIds.map(async (threadId) => {
+          try {
+            const pref = await getThreadDisplayLanguageApi(threadId);
+            if (isThreadDisplayLanguage(pref.language)) {
+              remoteMap[threadId] = pref.language;
+            }
+          } catch {
+            // Ignore per-thread fetch failure.
+          }
+        })
+      );
+      if (cancelled || Object.keys(remoteMap).length === 0) return;
+      patchThreadLanguageMap((previous) => {
+        const next = { ...previous };
+        let changed = false;
+        for (const [threadId, language] of Object.entries(remoteMap)) {
+          if (next[threadId] === language) continue;
+          next[threadId] = language;
+          changed = true;
+        }
+        return changed ? next : previous;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chatThreads, isSignedIn, patchThreadLanguageMap, userID]);
 
   const refreshThreadMessages = useCallback(async (threadId: string) => {
     if (!threadId) return;
@@ -696,6 +871,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       setCustomSkills(defaultCustomSkills);
       setMiniApps(defaultMiniApps);
       setMiniAppTemplates(defaultMiniAppTemplates);
+      setThreadLanguageById({});
       setBootstrapReady(true);
       return () => {
         cancelled = true;
@@ -779,6 +955,12 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             return next;
           });
           setFriends((prev) => prev.filter((item) => item.threadId !== threadId));
+          patchThreadLanguageMap((previous) => {
+            if (!(threadId in previous)) return previous;
+            const next = { ...previous };
+            delete next[threadId];
+            return next;
+          });
           break;
         }
         case "chat.message.created": {
@@ -855,6 +1037,12 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             });
             setThreadMembers((prev) => {
               const next = { ...prev };
+              delete next[removedThreadID];
+              return next;
+            });
+            patchThreadLanguageMap((previous) => {
+              if (!(removedThreadID in previous)) return previous;
+              const next = { ...previous };
               delete next[removedThreadID];
               return next;
             });
@@ -976,7 +1164,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     return () => {
       unsubscribe();
     };
-  }, [isE2E, isSignedIn, userID]);
+  }, [isE2E, isSignedIn, patchThreadLanguageMap, userID]);
 
   const value = useMemo<AgentTownContextValue>(() => {
     return {
@@ -995,6 +1183,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       myHouseType,
       uiTheme,
       language,
+      threadLanguageById,
       voiceModeEnabled,
       bootstrapReady,
       updateBotConfig: (next) => {
@@ -1040,6 +1229,12 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
           return next;
         });
         setFriends((prev) => prev.filter((item) => item.threadId !== threadId));
+        patchThreadLanguageMap((previous) => {
+          if (!(threadId in previous)) return previous;
+          const next = { ...previous };
+          delete next[threadId];
+          return next;
+        });
         try {
           await deleteChatThreadApi(threadId);
         } catch {
@@ -1049,6 +1244,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       updateHouseType: setMyHouseType,
       updateUiTheme: setUiTheme,
       updateLanguage: setLanguage,
+      updateThreadLanguage,
       updateVoiceModeEnabled: setVoiceModeEnabled,
       refreshAll,
       refreshThreadMessages,
@@ -1103,63 +1299,61 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
         }
       },
       createFriend: async (input) => {
-        try {
-          const created = await createFriendApi(input);
-          if (created.mode === "friend" && created.friend) {
-            const nextFriend = created.friend as Friend;
-            setFriends((prev) => upsertById(prev, nextFriend, true));
+        const created = await createFriendApi(input);
+        if (created.mode === "friend" && created.friend) {
+          const nextFriend = created.friend as Friend;
+          setFriends((prev) => upsertById(prev, nextFriend, true));
 
-            const threadId = (nextFriend.threadId || "").trim();
-            if (threadId) {
-              setChatThreads((prev) => {
-                if (prev.some((thread) => thread.id === threadId)) return prev;
-                const directThread: ChatThread = {
-                  id: threadId,
-                  name: nextFriend.name || "Direct chat",
-                  avatar: nextFriend.avatar || "",
-                  message: "",
-                  time: "Now",
-                  isGroup: false,
-                  targetType: "user",
-                  targetId: nextFriend.userId || "",
-                };
-                return upsertById(prev, directThread, true);
-              });
-              return nextFriend;
-            }
-
-            if (nextFriend.userId) {
-              try {
-                const createdSession = await atCreateSession({
-                  target_type: "user",
-                  target_id: nextFriend.userId,
-                  title: nextFriend.name || undefined,
-                });
-                const mappedThread = mapATSessionToThread(createdSession);
-                if (mappedThread?.id) {
-                  setChatThreads((prev) => upsertById(prev, mappedThread, true));
-                  setFriends((prev) =>
-                    prev.map((friend) =>
-                      friend.id === nextFriend.id
-                        ? {
-                            ...friend,
-                            threadId: mappedThread.id,
-                          }
-                        : friend
-                    )
-                  );
-                }
-              } catch {
-                // Keep friend added even when direct thread creation fails.
-              }
-            }
-
+          const threadId = (nextFriend.threadId || "").trim();
+          if (threadId) {
+            setChatThreads((prev) => {
+              if (prev.some((thread) => thread.id === threadId)) return prev;
+              const directThread: ChatThread = {
+                id: threadId,
+                name: nextFriend.name || "Direct chat",
+                avatar: nextFriend.avatar || "",
+                message: "",
+                time: "Now",
+                isGroup: false,
+                targetType: "user",
+                targetId: nextFriend.userId || "",
+              };
+              return upsertById(prev, directThread, true);
+            });
             return nextFriend;
           }
-          return null;
-        } catch {
-          return null;
+
+          if (nextFriend.userId) {
+            try {
+              const createdSession = await atCreateSession({
+                target_type: "user",
+                target_id: nextFriend.userId,
+                title: nextFriend.name || undefined,
+              });
+              const mappedThread = mapATSessionToThread(createdSession);
+              if (mappedThread?.id) {
+                setChatThreads((prev) => upsertById(prev, mappedThread, true));
+                setFriends((prev) =>
+                  prev.map((friend) =>
+                    friend.id === nextFriend.id
+                      ? {
+                          ...friend,
+                          threadId: mappedThread.id,
+                        }
+                      : friend
+                  )
+                );
+              }
+            } catch {
+              // Keep friend added even when direct thread creation fails.
+            }
+          }
+
+          return nextFriend;
         }
+
+        // mode === "request": request created successfully, wait for the other side to accept.
+        return null;
       },
       removeFriend: async (friendId) => {
         if (!friendId) return;
@@ -1176,6 +1370,12 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
           delete historyCursorByThreadRef.current[linkedThreadID];
           setThreadMembers((prev) => {
             const next = { ...prev };
+            delete next[linkedThreadID];
+            return next;
+          });
+          patchThreadLanguageMap((previous) => {
+            if (!(linkedThreadID in previous)) return previous;
+            const next = { ...previous };
             delete next[linkedThreadID];
             return next;
           });
@@ -1486,90 +1686,78 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       },
       installMiniApp: async (appId, install = true) => {
         if (!appId) return;
-        try {
-          const updated = await installMiniAppApi(appId, install);
-          setMiniApps((prev) => upsertById(prev, updated, true));
-        } catch {
-          // Ignore install failure.
-        }
+        const updated = await installMiniAppApi(appId, install);
+        setMiniApps((prev) => upsertById(prev, updated, true));
       },
       runMiniApp: async (appId, input, params, threadId) => {
         if (!appId || (!input.trim() && !params)) return null;
-        try {
-          const result = await runMiniAppApi(appId, {
-            input,
-            params,
-            threadId,
-          });
+        const result = await runMiniAppApi(appId, {
+          input,
+          params,
+          threadId,
+        });
 
-          setMiniApps((prev) =>
-            prev.map((item) =>
-              item.id === appId
-                ? {
-                    ...item,
-                    preview: {
-                      ...(item.preview || {}),
-                      ...(typeof result.outputData?.uiType === "string"
-                        ? { uiType: result.outputData.uiType }
+        setMiniApps((prev) =>
+          prev.map((item) =>
+            item.id === appId
+              ? {
+                  ...item,
+                  preview: {
+                    ...(item.preview || {}),
+                    ...(typeof result.outputData?.uiType === "string"
+                      ? { uiType: result.outputData.uiType }
+                      : {}),
+                    content: {
+                      ...(((item.preview || {}) as Record<string, unknown>).content as Record<string, unknown> || {}),
+                      ...(Array.isArray(result.outputData?.items)
+                        ? { items: result.outputData.items }
                         : {}),
-                      content: {
-                        ...(((item.preview || {}) as Record<string, unknown>).content as Record<string, unknown> || {}),
-                        ...(Array.isArray(result.outputData?.items)
-                          ? { items: result.outputData.items }
-                          : {}),
-                        ...(result.outputData?.card &&
-                        typeof result.outputData.card === "object" &&
-                        !Array.isArray(result.outputData.card)
-                          ? { card: result.outputData.card }
-                          : {}),
-                        ...(Array.isArray(result.outputData?.panels)
-                          ? { panels: result.outputData.panels }
-                          : {}),
-                        ...(Array.isArray(result.outputData?.blocks)
-                          ? { blocks: result.outputData.blocks }
-                          : {}),
-                      },
-                      lastRun: {
-                        input,
-                        params,
-                        output: result.output,
-                        outputData: result.outputData,
-                        ranAt: result.ranAt,
-                      },
+                      ...(result.outputData?.card &&
+                      typeof result.outputData.card === "object" &&
+                      !Array.isArray(result.outputData.card)
+                        ? { card: result.outputData.card }
+                        : {}),
+                      ...(Array.isArray(result.outputData?.panels)
+                        ? { panels: result.outputData.panels }
+                        : {}),
+                      ...(Array.isArray(result.outputData?.blocks)
+                        ? { blocks: result.outputData.blocks }
+                        : {}),
                     },
-                  }
-                : item
-            )
-          );
+                    lastRun: {
+                      input,
+                      params,
+                      output: result.output,
+                      outputData: result.outputData,
+                      ranAt: result.ranAt,
+                    },
+                  },
+                }
+              : item
+          )
+        );
 
-          const message = result.message;
-          if (threadId && message) {
-            setMessagesByThread((prev) => {
-              const history = prev[threadId] || [];
-              if (history.some((item) => item.id === message.id)) {
-                return prev;
-              }
-              return {
-                ...prev,
-                [threadId]: [...history, message],
-              };
-            });
-            setChatThreads((prev) => updateThreadPreview(prev, threadId, previewMessage(message)));
-          }
-
-          return result.output;
-        } catch {
-          return null;
+        const message = result.message;
+        if (threadId && message) {
+          setMessagesByThread((prev) => {
+            const history = prev[threadId] || [];
+            if (history.some((item) => item.id === message.id)) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [threadId]: [...history, message],
+            };
+          });
+          setChatThreads((prev) => updateThreadPreview(prev, threadId, previewMessage(message)));
         }
+
+        return result.output;
       },
       removeMiniApp: async (appId) => {
         if (!appId) return;
+        await deleteMiniAppApi(appId);
         setMiniApps((prev) => prev.filter((item) => item.id !== appId));
-        try {
-          await deleteMiniAppApi(appId);
-        } catch {
-          // Keep optimistic state.
-        }
       },
     };
   }, [
@@ -1588,12 +1776,15 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     miniAppGeneration,
     miniApps,
     myHouseType,
+    patchThreadLanguageMap,
     refreshAll,
     refreshThreadMessages,
     skillCatalog,
     tasks,
+    threadLanguageById,
     threadMembers,
     uiTheme,
+    updateThreadLanguage,
     voiceModeEnabled,
     userID,
   ]);

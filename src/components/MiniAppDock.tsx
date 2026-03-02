@@ -162,7 +162,7 @@ function heroForApp(app: MiniApp | null) {
 
 export function MiniAppDock() {
   const router = useRouter();
-  const { language, miniApps, miniAppGeneration, generateMiniApp, installMiniApp } = useAgentTown();
+  const { language, miniAppGeneration, generateMiniApp, installMiniApp } = useAgentTown();
   const tr = (zh: string, en: string) => tx(language, zh, en);
 
   const [collapsed, setCollapsed] = useState(false);
@@ -171,12 +171,7 @@ export function MiniAppDock() {
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState<MiniApp | null>(null);
 
-  const latestGenerated = useMemo(() => {
-    if (generated) return generated;
-    if (!miniApps.length) return null;
-    const sorted = [...miniApps].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-    return sorted[0] || null;
-  }, [generated, miniApps]);
+  const latestGenerated = useMemo(() => generated, [generated]);
 
   const openGenerator = (seedPrompt?: string) => {
     setPrompt(seedPrompt ?? prompt);
