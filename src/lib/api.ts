@@ -1052,7 +1052,14 @@ export async function executeCustomSkill(skillId: string, payload: ExecuteCustom
 }
 
 export async function listMiniApps() {
-  return apiFetch<MiniApp[]>("/v1/miniapps");
+  const payload = await apiFetch<MiniApp[] | { list?: MiniApp[] }>("/v1/miniapps");
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (payload && Array.isArray(payload.list)) {
+    return payload.list;
+  }
+  return [];
 }
 
 export async function listMiniAppTemplates() {

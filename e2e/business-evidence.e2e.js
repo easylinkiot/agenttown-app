@@ -1,4 +1,4 @@
-/* eslint-env detox/detox, jest */
+/* global __dirname, describe, beforeAll, it, device, element, by, waitFor */
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -108,12 +108,10 @@ async function openThread(threadMeta) {
 
 async function captureCase(threadMeta, screenshotName) {
   // Keep explicit progress logs in CI/local runs to prove each case executed.
-  // eslint-disable-next-line no-console
   console.log(`[e2e] capture start: ${screenshotName}`);
   await openThread(threadMeta);
   await waitFor(element(by.id("chat-message-input"))).toBeVisible().withTimeout(15000);
   await device.takeScreenshot(screenshotName);
-  // eslint-disable-next-line no-console
   console.log(`[e2e] capture done: ${screenshotName}`);
 }
 

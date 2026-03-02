@@ -1652,90 +1652,78 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       },
       installMiniApp: async (appId, install = true) => {
         if (!appId) return;
-        try {
-          const updated = await installMiniAppApi(appId, install);
-          setMiniApps((prev) => upsertById(prev, updated, true));
-        } catch {
-          // Ignore install failure.
-        }
+        const updated = await installMiniAppApi(appId, install);
+        setMiniApps((prev) => upsertById(prev, updated, true));
       },
       runMiniApp: async (appId, input, params, threadId) => {
         if (!appId || (!input.trim() && !params)) return null;
-        try {
-          const result = await runMiniAppApi(appId, {
-            input,
-            params,
-            threadId,
-          });
+        const result = await runMiniAppApi(appId, {
+          input,
+          params,
+          threadId,
+        });
 
-          setMiniApps((prev) =>
-            prev.map((item) =>
-              item.id === appId
-                ? {
-                    ...item,
-                    preview: {
-                      ...(item.preview || {}),
-                      ...(typeof result.outputData?.uiType === "string"
-                        ? { uiType: result.outputData.uiType }
+        setMiniApps((prev) =>
+          prev.map((item) =>
+            item.id === appId
+              ? {
+                  ...item,
+                  preview: {
+                    ...(item.preview || {}),
+                    ...(typeof result.outputData?.uiType === "string"
+                      ? { uiType: result.outputData.uiType }
+                      : {}),
+                    content: {
+                      ...(((item.preview || {}) as Record<string, unknown>).content as Record<string, unknown> || {}),
+                      ...(Array.isArray(result.outputData?.items)
+                        ? { items: result.outputData.items }
                         : {}),
-                      content: {
-                        ...(((item.preview || {}) as Record<string, unknown>).content as Record<string, unknown> || {}),
-                        ...(Array.isArray(result.outputData?.items)
-                          ? { items: result.outputData.items }
-                          : {}),
-                        ...(result.outputData?.card &&
-                        typeof result.outputData.card === "object" &&
-                        !Array.isArray(result.outputData.card)
-                          ? { card: result.outputData.card }
-                          : {}),
-                        ...(Array.isArray(result.outputData?.panels)
-                          ? { panels: result.outputData.panels }
-                          : {}),
-                        ...(Array.isArray(result.outputData?.blocks)
-                          ? { blocks: result.outputData.blocks }
-                          : {}),
-                      },
-                      lastRun: {
-                        input,
-                        params,
-                        output: result.output,
-                        outputData: result.outputData,
-                        ranAt: result.ranAt,
-                      },
+                      ...(result.outputData?.card &&
+                      typeof result.outputData.card === "object" &&
+                      !Array.isArray(result.outputData.card)
+                        ? { card: result.outputData.card }
+                        : {}),
+                      ...(Array.isArray(result.outputData?.panels)
+                        ? { panels: result.outputData.panels }
+                        : {}),
+                      ...(Array.isArray(result.outputData?.blocks)
+                        ? { blocks: result.outputData.blocks }
+                        : {}),
                     },
-                  }
-                : item
-            )
-          );
+                    lastRun: {
+                      input,
+                      params,
+                      output: result.output,
+                      outputData: result.outputData,
+                      ranAt: result.ranAt,
+                    },
+                  },
+                }
+              : item
+          )
+        );
 
-          const message = result.message;
-          if (threadId && message) {
-            setMessagesByThread((prev) => {
-              const history = prev[threadId] || [];
-              if (history.some((item) => item.id === message.id)) {
-                return prev;
-              }
-              return {
-                ...prev,
-                [threadId]: [...history, message],
-              };
-            });
-            setChatThreads((prev) => updateThreadPreview(prev, threadId, previewMessage(message)));
-          }
-
-          return result.output;
-        } catch {
-          return null;
+        const message = result.message;
+        if (threadId && message) {
+          setMessagesByThread((prev) => {
+            const history = prev[threadId] || [];
+            if (history.some((item) => item.id === message.id)) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [threadId]: [...history, message],
+            };
+          });
+          setChatThreads((prev) => updateThreadPreview(prev, threadId, previewMessage(message)));
         }
+
+        return result.output;
       },
       removeMiniApp: async (appId) => {
         if (!appId) return;
+        await deleteMiniAppApi(appId);
         setMiniApps((prev) => prev.filter((item) => item.id !== appId));
-        try {
-          await deleteMiniAppApi(appId);
-        } catch {
-          // Keep optimistic state.
-        }
       },
     };
   }, [
