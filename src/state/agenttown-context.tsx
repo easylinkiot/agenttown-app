@@ -1244,6 +1244,35 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       loadOlderMessages,
       sendMessage: async (threadId, payload) => {
         if (!threadId) return null;
+        if (isE2E) {
+          const senderId = (payload.senderId || userID || "e2e-guest-user").trim();
+          const userMessage: ConversationMessage = {
+            id: `e2e_msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            threadId,
+            senderId,
+            senderName: payload.senderName || "E2E Guest",
+            senderAvatar: payload.senderAvatar || botConfig.avatar,
+            senderType: payload.senderType || "human",
+            content: payload.content || "",
+            type: payload.type || "text",
+            imageUri: payload.imageUri,
+            imageName: payload.imageName,
+            isMe: payload.isMe ?? true,
+            time: "Now",
+          };
+          const base = messagesByThreadRef.current[threadId] || [];
+          const nextMessages = [...base, userMessage];
+          setMessagesByThread((prev) => ({
+            ...prev,
+            [threadId]: nextMessages,
+          }));
+          void upsertThreadCache(userID, threadId, nextMessages);
+          setChatThreads((prev) => updateThreadPreview(prev, threadId, previewMessage(userMessage)));
+          return {
+            userMessage,
+            messages: nextMessages,
+          };
+        }
         try {
           const result = await sendThreadMessageApi(threadId, payload);
           if (Array.isArray(result.messages)) {
@@ -1733,6 +1762,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     chatThreads,
     customSkills,
     friends,
+    isE2E,
     language,
     listMembers,
     loadOlderMessages,

@@ -22,6 +22,7 @@ import { tx } from "@/src/i18n/translate";
 import { formatApiError } from "@/src/lib/api";
 import { useAgentTown } from "@/src/state/agenttown-context";
 import { useAuth } from "@/src/state/auth-context";
+import { isE2ETestMode } from "@/src/utils/e2e";
 
 type MediaPickerAsset = {
   id: string;
@@ -45,6 +46,7 @@ function toDuration(totalSeconds?: number) {
 }
 
 export default function ChatMediaPickerScreen() {
+  const isE2E = isE2ETestMode();
   const router = useRouter();
   const params = useLocalSearchParams<{ chatId?: string | string[] }>();
   const insets = useSafeAreaInsets();
@@ -67,6 +69,29 @@ export default function ChatMediaPickerScreen() {
   const loadSeqRef = useRef(0);
   const previewListRef = useRef<FlatList<MediaPickerAsset> | null>(null);
   const dragY = useRef(new Animated.Value(0)).current;
+  const e2eImageUri = useMemo(
+    () => Image.resolveAssetSource(require("../../assets/images/icon.png")).uri,
+    []
+  );
+  const e2eAltImageUri = useMemo(
+    () => Image.resolveAssetSource(require("../../assets/images/splash-icon.png")).uri,
+    []
+  );
+  const e2ePageOneAssets = useMemo<MediaPickerAsset[]>(
+    () => [
+      { id: "e2e-image-1", type: "image", uri: e2eImageUri, thumbUri: e2eImageUri, filename: "icon.png" },
+      { id: "e2e-video-1", type: "video", uri: "e2e://video-1.mp4", thumbUri: e2eAltImageUri, duration: 61, filename: "demo.mp4" },
+      { id: "e2e-image-2", type: "image", uri: e2eAltImageUri, thumbUri: e2eAltImageUri, filename: "splash-icon.png" },
+    ],
+    [e2eAltImageUri, e2eImageUri]
+  );
+  const e2ePageTwoAssets = useMemo<MediaPickerAsset[]>(
+    () => [
+      { id: "e2e-image-3", type: "image", uri: e2eImageUri, thumbUri: e2eImageUri, filename: "icon-copy.png" },
+      { id: "e2e-video-2", type: "video", uri: "e2e://video-2.mp4", thumbUri: e2eImageUri, duration: 125, filename: "demo-2.mp4" },
+    ],
+    [e2eImageUri]
+  );
 
   const panelHeight = useMemo(() => {
     const maxHeight = Math.max(360, height - insets.top - 56);
@@ -135,6 +160,15 @@ export default function ChatMediaPickerScreen() {
     setHasNextPage(true);
     setNextCursor(undefined);
     try {
+      if (isE2E) {
+        if (requestSeq !== loadSeqRef.current) return;
+        setAssets(e2ePageOneAssets);
+        setHasNextPage(true);
+        setNextCursor("e2e:page2");
+        setLoading(false);
+        return;
+      }
+
       let permission = await MediaLibrary.getPermissionsAsync();
       if (!permission.granted) {
         permission = await MediaLibrary.requestPermissionsAsync();
@@ -172,7 +206,7 @@ export default function ChatMediaPickerScreen() {
         setLoading(false);
       }
     }
-  }, [mapMediaAsset, tr]);
+  }, [e2ePageOneAssets, isE2E, mapMediaAsset, tr]);
 
   useEffect(() => {
     if (!chatId) {
@@ -188,6 +222,16 @@ export default function ChatMediaPickerScreen() {
     const requestSeq = loadSeqRef.current;
     setLoadingMore(true);
     try {
+      if (isE2E) {
+        if (requestSeq !== loadSeqRef.current) return;
+        if (nextCursor === "e2e:page2") {
+          setAssets((prev) => mergeUniqueAssets(prev, e2ePageTwoAssets));
+        }
+        setHasNextPage(false);
+        setNextCursor(undefined);
+        return;
+      }
+
       const page = await MediaLibrary.getAssetsAsync({
         first: MEDIA_PAGE_SIZE,
         after: nextCursor,
@@ -211,7 +255,7 @@ export default function ChatMediaPickerScreen() {
         setLoadingMore(false);
       }
     }
-  }, [hasNextPage, loading, loadingMore, mapMediaAsset, mergeUniqueAssets, nextCursor, tr]);
+  }, [e2ePageTwoAssets, hasNextPage, isE2E, loading, loadingMore, mapMediaAsset, mergeUniqueAssets, nextCursor, tr]);
 
   const panResponder = useMemo(
     () =>
@@ -330,9 +374,10 @@ export default function ChatMediaPickerScreen() {
   ]);
 
   return (
-    <View style={styles.root}>
-      <Pressable style={styles.backdrop} onPress={close} />
+    <View testID="chat-media-picker-root" style={styles.root}>
+      <Pressable testID="chat-media-picker-backdrop" style={styles.backdrop} onPress={close} />
       <Animated.View
+        testID="chat-media-picker-panel"
         style={[
           styles.panel,
           {
@@ -344,8 +389,10 @@ export default function ChatMediaPickerScreen() {
       >
         <View style={styles.handle} {...panResponder.panHandlers} />
         <View style={styles.header}>
-          <Text style={styles.title}>{tr("选择媒体", "Select Media")}</Text>
-          <Pressable style={styles.closeBtn} onPress={close}>
+          <Text testID="chat-media-picker-title" style={styles.title}>
+            {tr("选择媒体", "Select Media")}
+          </Text>
+          <Pressable testID="chat-media-picker-close" style={styles.closeBtn} onPress={close}>
             <Ionicons name="close" size={16} color="rgba(226,232,240,0.92)" />
           </Pressable>
         </View>
@@ -354,17 +401,22 @@ export default function ChatMediaPickerScreen() {
           {loading ? (
             <View style={styles.state}>
               <ActivityIndicator size="small" color="rgba(191,219,254,0.95)" />
-              <Text style={styles.hint}>{tr("正在读取系统相册...", "Loading media library...")}</Text>
+              <Text testID="chat-media-picker-loading-text" style={styles.hint}>
+                {tr("正在读取系统相册...", "Loading media library...")}
+              </Text>
             </View>
           ) : error ? (
             <View style={styles.state}>
-              <Text style={styles.error}>{error}</Text>
-              <Pressable style={styles.retryBtn} onPress={() => void loadAssets()}>
+              <Text testID="chat-media-picker-error-text" style={styles.error}>
+                {error}
+              </Text>
+              <Pressable testID="chat-media-picker-retry" style={styles.retryBtn} onPress={() => void loadAssets()}>
                 <Text style={styles.retryText}>{tr("重试", "Retry")}</Text>
               </Pressable>
             </View>
           ) : (
             <FlatList
+              testID="chat-media-picker-grid"
               key={`media-grid-${columns}`}
               data={assets}
               numColumns={columns}
@@ -388,10 +440,11 @@ export default function ChatMediaPickerScreen() {
                   </View>
                 ) : null
               }
-              renderItem={({ item }) => {
+              renderItem={({ item, index }) => {
                 const selected = selectedIds.has(item.id);
                 return (
                   <Pressable
+                    testID={`chat-media-asset-${index}`}
                     style={({ pressed }) => [
                       styles.item,
                       { width: itemSize, height: itemSize },
@@ -405,7 +458,7 @@ export default function ChatMediaPickerScreen() {
                       {selected ? <Ionicons name="checkmark" size={12} color="#f8fafc" /> : null}
                     </View>
                     {item.type === "video" ? (
-                      <View style={styles.videoBadge}>
+                      <View testID={`chat-media-video-badge-${index}`} style={styles.videoBadge}>
                         <Ionicons name="videocam" size={10} color="rgba(241,245,249,0.96)" />
                         <Text style={styles.videoDuration}>{toDuration(item.duration)}</Text>
                       </View>
@@ -418,13 +471,14 @@ export default function ChatMediaPickerScreen() {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.selection}>
+          <Text testID="chat-media-picker-selection" style={styles.selection}>
             {selectedAssets.length > 0
               ? tr(`已选 ${selectedAssets.length} 项`, `${selectedAssets.length} selected`)
               : tr("请选择要发送的媒体", "Select media to send")}
           </Text>
           <View style={styles.footerActions}>
             <Pressable
+              testID="chat-media-picker-preview"
               style={[styles.previewBtn, previewDisabled && styles.previewBtnDisabled]}
               disabled={previewDisabled}
               onPress={openPreview}
@@ -432,6 +486,7 @@ export default function ChatMediaPickerScreen() {
               <Text style={styles.previewText}>{tr("预览", "Preview")}</Text>
             </Pressable>
             <Pressable
+              testID="chat-media-picker-send"
               style={[styles.sendBtn, sendDisabled && styles.sendBtnDisabled]}
               disabled={sendDisabled}
               onPress={() => {
@@ -449,8 +504,9 @@ export default function ChatMediaPickerScreen() {
       </Animated.View>
 
       {previewVisible ? (
-        <View style={styles.previewOverlay}>
+        <View testID="chat-media-picker-preview-overlay" style={styles.previewOverlay}>
           <FlatList
+            testID="chat-media-picker-preview-list"
             ref={previewListRef}
             data={previewAssets}
             keyExtractor={(item) => item.id}
@@ -480,12 +536,12 @@ export default function ChatMediaPickerScreen() {
             )}
           />
           <View style={[styles.previewHeader, { paddingTop: Math.max(insets.top, 0) + 10 }]}>
-            <Pressable style={styles.closeBtn} onPress={closePreview}>
+            <Pressable testID="chat-media-picker-preview-close" style={styles.closeBtn} onPress={closePreview}>
               <Ionicons name="close" size={16} color="rgba(226,232,240,0.92)" />
             </Pressable>
           </View>
           <View style={[styles.previewFooter, { paddingBottom: Math.max(insets.bottom, 10) + 10 }]}>
-            <Text style={styles.previewCounter}>
+            <Text testID="chat-media-picker-preview-counter" style={styles.previewCounter}>
               {previewAssets.length > 0 ? `${previewIndex + 1} / ${previewAssets.length}` : ""}
             </Text>
           </View>
