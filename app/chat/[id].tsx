@@ -124,6 +124,7 @@ const MEDIA_SHEET_ANIM_DURATION = 220;
 const MEDIA_SHEET_DRAG_CLOSE_DISTANCE = 120;
 const MEDIA_GRID_MIN_ITEM_SIZE = 80;
 const MEDIA_GRID_GAP = 8;
+const AUTO_TRANSLATE_BATCH_SIZE = 24;
 const PLUS_PANEL_ITEMS: PlusPanelItem[] = [
   { key: "image", icon: "image-outline", zh: "图片", en: "Image" },
   { key: "video", icon: "videocam-outline", zh: "视频", en: "Video" },
@@ -302,6 +303,7 @@ export default function ChatDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isWideDesktopWeb = Platform.OS === "web" && windowWidth >= 1280;
   const { user } = useAuth();
   const isDraggingRef = useRef(false);
   const bubbleHeightsRef = useRef<Record<string, number>>({});
@@ -1325,16 +1327,21 @@ export default function ChatDetailScreen() {
   const [askAI, setAskAI] = useState("");
   const [askAICandidates, setAskAICandidates] = useState<AssistCandidate[]>([]);
   const [askAISelectedIndex, setAskAISelectedIndex] = useState(0);
-  const [askAIAction, setAskAIAction] = useState<ChatAssistAction>("ask_anything");
+  const [askAIAction, setAskAIAction] = useState<ChatAssistAction>("auto_reply");
+  const [askAIMoreMenuOpen, setAskAIMoreMenuOpen] = useState(false);
   const [askAIError, setAskAIError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [translatedByMessageId, setTranslatedByMessageId] = useState<
     Record<string, Partial<Record<ThreadDisplayLanguage, string>>>
   >({});
   const [showOriginalByMessageId, setShowOriginalByMessageId] = useState<Record<string, boolean>>({});
+  const translatedByMessageIdRef = useRef<Record<string, Partial<Record<ThreadDisplayLanguage, string>>>>({});
   const askAIAbortRef = useRef<AbortController | null>(null);
   const askAIRequestSeqRef = useRef(0);
   const askAIMountedRef = useRef(true);
+  const autoTranslateAbortRef = useRef<AbortController | null>(null);
+  const autoTranslateRequestSeqRef = useRef(0);
+  const autoTranslatePendingRef = useRef<Set<string>>(new Set());
   const [myBotPanel, setMyBotPanel] = useState(false);
   const [memberNameListModal, setMemberNameListModal] = useState(false);
   const [myBotQuestion, setMyBotQuestion] = useState("");
@@ -1735,15 +1742,22 @@ export default function ChatDetailScreen() {
   }, []);
 
   useEffect(() => {
+    translatedByMessageIdRef.current = translatedByMessageId;
+  }, [translatedByMessageId]);
+
+  useEffect(() => {
     askAIMountedRef.current = true;
     return () => {
       askAIMountedRef.current = false;
       abortAskAIStream();
+      autoTranslateAbortRef.current?.abort();
+      autoTranslateAbortRef.current = null;
     };
   }, [abortAskAIStream]);
 
   const closeActionModal = useCallback(() => {
     abortAskAIStream();
+    setAskAIMoreMenuOpen(false);
     setActionModal(false);
   }, [abortAskAIStream]);
 
@@ -1882,7 +1896,8 @@ export default function ChatDetailScreen() {
     setAskAICandidates([]);
     setAskAISelectedIndex(0);
     setAskAIError(null);
-    setAskAIAction("ask_anything");
+    setAskAIAction("auto_reply");
+    setAskAIMoreMenuOpen(false);
     setIsStreaming(false);
     setActionAnchor(null);
     setActionModal(true);
@@ -1896,7 +1911,8 @@ export default function ChatDetailScreen() {
     setAskAICandidates([]);
     setAskAISelectedIndex(0);
     setAskAIError(null);
-    setAskAIAction("ask_anything");
+    setAskAIAction("auto_reply");
+    setAskAIMoreMenuOpen(false);
     setIsStreaming(false);
     if (ev?.nativeEvent) {
       const h = bubbleHeightsRef.current[message.id] || 56;
@@ -2013,6 +2029,107 @@ export default function ChatDetailScreen() {
   const runTranslate = async () => {
     await runAssistGeneration("translate");
   };
+
+  useEffect(() => {
+    if (!chatId) return;
+    if (messages.length === 0) return;
+
+    const targetLanguage = threadDisplayLanguage;
+    const queuedMessages = messages
+      .slice(-AUTO_TRANSLATE_BATCH_SIZE)
+      .filter((message) => {
+        const messageId = (message.id || "").trim();
+        const content = (message.content || "").trim();
+        const type = (message.type || "").trim().toLowerCase();
+        if (!messageId || !content) return false;
+        if (type === "system" || type === "voice" || type === "image") return false;
+        if ((translatedByMessageIdRef.current[messageId]?.[targetLanguage] || "").trim()) return false;
+        if (autoTranslatePendingRef.current.has(`${messageId}:${targetLanguage}`)) return false;
+        return true;
+      });
+
+    if (queuedMessages.length === 0) return;
+
+    autoTranslateAbortRef.current?.abort();
+    const controller = new AbortController();
+    autoTranslateAbortRef.current = controller;
+    const requestSeq = ++autoTranslateRequestSeqRef.current;
+
+    const run = async () => {
+      for (const message of queuedMessages) {
+        if (controller.signal.aborted) return;
+        if (requestSeq !== autoTranslateRequestSeqRef.current) return;
+
+        const messageId = (message.id || "").trim();
+        const content = (message.content || "").trim();
+        if (!messageId || !content) continue;
+
+        const requestKey = `${messageId}:${targetLanguage}`;
+        if (autoTranslatePendingRef.current.has(requestKey)) continue;
+        autoTranslatePendingRef.current.add(requestKey);
+
+        let latestCandidates: AssistCandidate[] = [];
+        try {
+          const assistRequest: ChatAssistRequest = {
+            action: "translate",
+            selected_message_id: messageId,
+            selected_message_content: content,
+            target_language: targetLanguage,
+          };
+
+          await runChatAssist(
+            assistRequest,
+            {
+              onCandidates: (next) => {
+                latestCandidates = next;
+              },
+            },
+            controller.signal
+          );
+
+          if (controller.signal.aborted) return;
+          if (requestSeq !== autoTranslateRequestSeqRef.current) return;
+
+          const translatedText = (
+            latestCandidates.find((candidate) => candidate.kind === "translate" && candidate.text.trim())?.text ||
+            latestCandidates.find((candidate) => candidate.text.trim())?.text ||
+            ""
+          ).trim();
+
+          if (!translatedText) continue;
+
+          setTranslatedByMessageId((previous) => {
+            const previousText = (previous[messageId]?.[targetLanguage] || "").trim();
+            if (previousText === translatedText) return previous;
+            return {
+              ...previous,
+              [messageId]: {
+                ...(previous[messageId] || {}),
+                [targetLanguage]: translatedText,
+              },
+            };
+          });
+          setShowOriginalByMessageId((previous) => ({
+            ...previous,
+            [messageId]: false,
+          }));
+        } catch {
+          if (controller.signal.aborted) return;
+        } finally {
+          autoTranslatePendingRef.current.delete(requestKey);
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      controller.abort();
+      if (autoTranslateAbortRef.current === controller) {
+        autoTranslateAbortRef.current = null;
+      }
+    };
+  }, [chatId, messages, threadDisplayLanguage]);
 
   const runFollowUp = async () => {
     await runAssistGeneration("follow_up");
@@ -2358,12 +2475,19 @@ export default function ChatDetailScreen() {
   );
 
   const ContainerView = Animated.View;
-  const containerStyle = [styles.container, { paddingBottom: keyboardPadding }];
+  const containerStyle = [
+    styles.container,
+    isWideDesktopWeb ? styles.containerWide : null,
+    { paddingBottom: keyboardPadding },
+  ];
+  const chatBodyStyle = [styles.chatBody, isWideDesktopWeb ? styles.chatBodyWide : null];
   const askAICanGenerate =
     Boolean(actionMessage) &&
     !isStreaming &&
     (askAIAction !== "ask_anything" || Boolean(askAI.trim()));
   const askAICanApply = !isStreaming && askAICandidates.length > 0;
+  const askAIActionIsOverflow =
+    askAIAction === "ask_anything" || askAIAction === "translate" || askAIAction === "follow_up";
   const askAIGenerateLabel = isStreaming
     ? tr("生成中...", "Generating...")
     : askAICandidates.length > 0
@@ -2610,7 +2734,7 @@ export default function ChatDetailScreen() {
             />
           ) : null}
 
-          <View style={styles.chatBody}>
+          <View style={chatBodyStyle}>
             {loading ? (
               <LoadingSkeleton kind="messages" />
             ) : (
@@ -2846,41 +2970,79 @@ export default function ChatDetailScreen() {
             >
               <View style={styles.aiModeRow}>
                 <Pressable
-                  style={[styles.aiModeBtn, askAIAction === "ask_anything" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("ask_anything")}
-                  disabled={isStreaming}
-                >
-                  <Text style={styles.aiModeBtnText}>{tr("问答", "Ask")}</Text>
-                </Pressable>
-                <Pressable
                   style={[styles.aiModeBtn, askAIAction === "auto_reply" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("auto_reply")}
+                  onPress={() => {
+                    setAskAIAction("auto_reply");
+                    setAskAIMoreMenuOpen(false);
+                  }}
                   disabled={isStreaming}
                 >
                   <Text style={styles.aiModeBtnText}>{tr("回复", "Reply")}</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.aiModeBtn, askAIAction === "add_task" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("add_task")}
+                  onPress={() => {
+                    setAskAIAction("add_task");
+                    setAskAIMoreMenuOpen(false);
+                  }}
                   disabled={isStreaming}
                 >
-                  <Text style={styles.aiModeBtnText}>{tr("任务", "Task")}</Text>
+                  <Text style={styles.aiModeBtnText}>{tr("加入任务", "Add to Task")}</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.aiModeBtn, askAIAction === "translate" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("translate")}
+                  style={[
+                    styles.aiModeBtn,
+                    styles.aiModeMoreBtn,
+                    (askAIActionIsOverflow || askAIMoreMenuOpen) && styles.aiModeBtnActive,
+                  ]}
+                  onPress={() => setAskAIMoreMenuOpen((prev) => !prev)}
                   disabled={isStreaming}
                 >
-                  <Text style={styles.aiModeBtnText}>{tr("翻译", "Translate")}</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.aiModeBtn, askAIAction === "follow_up" && styles.aiModeBtnActive]}
-                  onPress={() => setAskAIAction("follow_up")}
-                  disabled={isStreaming}
-                >
-                  <Text style={styles.aiModeBtnText}>{tr("跟进", "Follow-up")}</Text>
+                  <Ionicons name="ellipsis-horizontal" size={16} color="rgba(226,232,240,0.94)" />
                 </Pressable>
               </View>
+              {askAIMoreMenuOpen ? (
+                <View style={styles.aiModeMoreMenu}>
+                  <Pressable
+                    style={[styles.aiModeMoreItem, askAIAction === "ask_anything" && styles.aiModeMoreItemActive]}
+                    onPress={() => {
+                      setAskAIAction("ask_anything");
+                      setAskAIMoreMenuOpen(false);
+                    }}
+                    disabled={isStreaming}
+                  >
+                    <Text style={styles.aiModeMoreItemText}>{tr("问答", "Ask")}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.aiModeMoreItem,
+                      styles.aiModeMoreItemDivider,
+                      askAIAction === "translate" && styles.aiModeMoreItemActive,
+                    ]}
+                    onPress={() => {
+                      setAskAIAction("translate");
+                      setAskAIMoreMenuOpen(false);
+                    }}
+                    disabled={isStreaming}
+                  >
+                    <Text style={styles.aiModeMoreItemText}>{tr("翻译", "Translate")}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.aiModeMoreItem,
+                      styles.aiModeMoreItemDivider,
+                      askAIAction === "follow_up" && styles.aiModeMoreItemActive,
+                    ]}
+                    onPress={() => {
+                      setAskAIAction("follow_up");
+                      setAskAIMoreMenuOpen(false);
+                    }}
+                    disabled={isStreaming}
+                  >
+                    <Text style={styles.aiModeMoreItemText}>{tr("跟进", "Follow-up")}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
 
               <View style={styles.aiAskRow}>
                 <Ionicons name="sparkles-outline" size={16} color="rgba(191,219,254,0.95)" />
@@ -3404,6 +3566,11 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     gap: 10,
   },
+  containerWide: {
+    width: "100%",
+    maxWidth: 1360,
+    alignSelf: "center",
+  },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -3485,6 +3652,11 @@ const styles = StyleSheet.create({
   chatBody: {
     flex: 1,
     marginTop: 4,
+  },
+  chatBodyWide: {
+    width: "100%",
+    maxWidth: 860,
+    alignSelf: "center",
   },
   messageContainer: {
     flex: 1,
@@ -4020,12 +4192,11 @@ const styles = StyleSheet.create({
   },
   aiModeRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: 8,
   },
   aiModeBtn: {
-    flexGrow: 1,
-    flexBasis: "30%",
+    flex: 1,
     minHeight: 34,
     borderRadius: 12,
     borderWidth: 1,
@@ -4037,6 +4208,35 @@ const styles = StyleSheet.create({
   aiModeBtnActive: {
     backgroundColor: "rgba(59,130,246,0.30)",
     borderColor: "rgba(147,197,253,0.62)",
+  },
+  aiModeMoreBtn: {
+    flex: 0,
+    width: 40,
+    paddingHorizontal: 0,
+  },
+  aiModeMoreMenu: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(2,6,23,0.72)",
+    overflow: "hidden",
+  },
+  aiModeMoreItem: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+  },
+  aiModeMoreItemDivider: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.09)",
+  },
+  aiModeMoreItemActive: {
+    backgroundColor: "rgba(59,130,246,0.24)",
+  },
+  aiModeMoreItemText: {
+    color: "rgba(226,232,240,0.94)",
+    fontSize: 12,
+    fontWeight: "800",
   },
   aiModeBtnText: {
     color: "rgba(226,232,240,0.94)",
