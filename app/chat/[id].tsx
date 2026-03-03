@@ -2705,6 +2705,8 @@ export default function ChatDetailScreen() {
             textInputProps={{
               ...(props?.textInputProps || {}),
               testID: "chat-message-input",
+              nativeID: "chat-message-input",
+              accessibilityLabel: "chat-message-input",
               showSoftInputOnFocus: true,
               editable: !isStreaming,
               maxLength: 4000,
