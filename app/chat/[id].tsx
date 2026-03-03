@@ -37,6 +37,7 @@ import {
   SystemMessageProps,
 } from "react-native-gifted-chat";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { KeyframeBackground } from "@/src/components/KeyframeBackground";
 import { EmptyState, LoadingSkeleton, StateBanner } from "@/src/components/StateBlocks";
@@ -72,6 +73,7 @@ import {
 import { isE2ETestMode } from "@/src/utils/e2e";
 
 type MemberFilter = "all" | "human" | "agent" | "role";
+type GroupReplyMode = "all" | "mention";
 type MemberCandidate = {
   key: string;
   type: "human" | "agent";
@@ -137,6 +139,20 @@ const THREAD_LANGUAGE_OPTIONS: { key: ThreadDisplayLanguage; label: string }[] =
   { key: "en", label: "En" },
   { key: "de", label: "De" },
 ];
+const GROUP_REPLY_MODE_STORAGE_PREFIX = "agenttown.group.reply.mode";
+
+function isGroupReplyMode(value: unknown): value is GroupReplyMode {
+  return value === "all" || value === "mention";
+}
+
+function safeStorageKeyPart(value: string) {
+  const safe = value.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+  return safe || "anonymous";
+}
+
+function groupReplyModeStorageKey(userId: string, threadId: string) {
+  return `${GROUP_REPLY_MODE_STORAGE_PREFIX}:${safeStorageKeyPart(userId)}:${safeStorageKeyPart(threadId)}`;
+}
 
 function formatMediaDuration(totalSeconds?: number) {
   if (!totalSeconds || totalSeconds <= 0) return "00:00";
@@ -288,12 +304,12 @@ function isBotLikeName(value?: string) {
   return /\bbot\b/i.test(name) || name.includes("助理");
 }
 
-function inferAvatarTagFromSender(message: ConversationMessage): "NPC" | "Bot" | null {
+function inferAvatarTagFromSender(message: ConversationMessage): "Human" | "NPC" | "Bot" {
   const senderType = (message.senderType || "").trim().toLowerCase();
   const senderID = (message.senderId || "").trim().toLowerCase();
   const senderName = (message.senderName || "").trim();
 
-  if (senderType === "human") return null;
+  if (senderType === "human") return "Human";
   if (senderType.includes("bot")) return "Bot";
   if (senderType.includes("agent") || senderType.includes("npc") || senderType.includes("role")) {
     return "NPC";
@@ -302,11 +318,11 @@ function inferAvatarTagFromSender(message: ConversationMessage): "NPC" | "Bot" |
   if (senderID.startsWith("agent_")) return "NPC";
   if (isBotLikeName(senderName)) return "Bot";
   if (/\bnpc\b/i.test(senderName)) return "NPC";
-  return null;
+  return "Human";
 }
 
-function inferAvatarTagFromMember(member: ThreadMember): "NPC" | "Bot" | null {
-  if (member.memberType === "human") return null;
+function inferAvatarTagFromMember(member: ThreadMember): "Human" | "NPC" | "Bot" {
+  if (member.memberType === "human") return "Human";
   if (member.memberType === "role") return "NPC";
   if (member.memberType === "agent") {
     const agentID = (member.agentId || "").trim().toLowerCase();
@@ -314,7 +330,7 @@ function inferAvatarTagFromMember(member: ThreadMember): "NPC" | "Bot" | null {
     if (isBotLikeName(member.name)) return "Bot";
     return "NPC";
   }
-  return null;
+  return "Human";
 }
 
 export default function ChatDetailScreen() {
@@ -1380,10 +1396,17 @@ export default function ChatDetailScreen() {
   const [memberPoolError, setMemberPoolError] = useState<string | null>(null);
   const [memberPoolNonce, setMemberPoolNonce] = useState(0);
   const [pendingMemberAdds, setPendingMemberAdds] = useState<
-    Array<{ key: string; label: string; onAdd: () => Promise<void> }>
+    { key: string; label: string; onAdd: () => Promise<void> }[]
   >([]);
   const [memberApplyBusy, setMemberApplyBusy] = useState(false);
+  const [groupReplyMode, setGroupReplyMode] = useState<GroupReplyMode>("all");
   const [threadMenuModal, setThreadMenuModal] = useState(false);
+  const groupReplyModeKey = useMemo(() => {
+    const threadKey = (chatId || "").trim();
+    if (!thread.isGroup || !threadKey) return "";
+    const ownerKey = (user?.id || "anonymous").trim();
+    return groupReplyModeStorageKey(ownerKey, threadKey);
+  }, [chatId, thread.isGroup, user?.id]);
 
   useEffect(() => {
     let mounted = true;
@@ -1408,6 +1431,32 @@ export default function ChatDetailScreen() {
       mounted = false;
     };
   }, [chatId, listMembers, refreshThreadMessages, thread.isGroup]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!thread.isGroup || !groupReplyModeKey) {
+      setGroupReplyMode("all");
+      return () => {
+        cancelled = true;
+      };
+    }
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(groupReplyModeKey);
+        if (cancelled) return;
+        if (isGroupReplyMode(stored)) {
+          setGroupReplyMode(stored);
+        } else {
+          setGroupReplyMode("all");
+        }
+      } catch {
+        if (!cancelled) setGroupReplyMode("all");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [groupReplyModeKey, thread.isGroup]);
 
   useEffect(() => {
     if (!memberModal) return;
@@ -1586,6 +1635,66 @@ export default function ChatDetailScreen() {
     [candidates, tr]
   );
 
+  const updateGroupReplyMode = useCallback(
+    (next: GroupReplyMode) => {
+      setGroupReplyMode(next);
+      if (!thread.isGroup || !groupReplyModeKey) return;
+      void AsyncStorage.setItem(groupReplyModeKey, next).catch(() => undefined);
+    },
+    [groupReplyModeKey, thread.isGroup]
+  );
+
+  const applyPendingMemberAdds = useCallback(async () => {
+    if (!chatId) return;
+    if (memberApplyBusy || pendingMemberAdds.length === 0) return;
+    setMemberApplyBusy(true);
+    setMemberPoolError(null);
+    const failedKeys = new Set<string>();
+    let appliedCount = 0;
+    try {
+      for (const item of pendingMemberAdds) {
+        try {
+          await item.onAdd();
+          appliedCount += 1;
+        } catch {
+          failedKeys.add(item.key);
+        }
+      }
+      await listMembers(chatId);
+      setMemberPoolNonce((n) => n + 1);
+      if (failedKeys.size > 0) {
+        setPendingMemberAdds((prev) => prev.filter((entry) => failedKeys.has(entry.key)));
+        setMemberPoolError(
+          tr(
+            `已成功添加 ${appliedCount} 位，${failedKeys.size} 位添加失败，请重试。`,
+            `${appliedCount} added, ${failedKeys.size} failed. Please retry.`
+          )
+        );
+        return;
+      }
+      setPendingMemberAdds([]);
+      setMemberModal(false);
+    } finally {
+      setMemberApplyBusy(false);
+    }
+  }, [chatId, listMembers, memberApplyBusy, pendingMemberAdds, tr]);
+
+  const sendUserOnlyMessage = useCallback(
+    async (content: string) =>
+      sendMessage(chatId, {
+        content,
+        type: "text",
+        senderId: user?.id,
+        senderName: user?.displayName || tr("我", "Me"),
+        senderAvatar: botConfig.avatar,
+        senderType: "human",
+        isMe: true,
+        requestAI: false,
+        systemInstruction: botConfig.systemInstruction,
+      }),
+    [botConfig.avatar, botConfig.systemInstruction, chatId, sendMessage, tr, user?.displayName, user?.id]
+  );
+
   const requestOlder = async () => {
     if (!hasUserScrolled || loadingOlder || !hasMore || !chatId) return;
     setLoadingOlder(true);
@@ -1627,8 +1736,17 @@ export default function ChatDetailScreen() {
     try {
       if (thread.isGroup) {
         const ids = mentionMemberIDs(content, members);
-        await generateRoleReplies(chatId, content, ids.length ? ids : undefined);
-        ok = true;
+        if (groupReplyMode === "mention" && ids.length === 0) {
+          const result = await sendUserOnlyMessage(content);
+          if (!result) {
+            setFailedDraft(content);
+          } else {
+            ok = true;
+          }
+        } else {
+          await generateRoleReplies(chatId, content, ids.length ? ids : undefined);
+          ok = true;
+        }
       } else if (isMyBotChatThreadId(chatId)) {
         botLocalId = `local_bot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const botMessage: ConversationMessage = {
@@ -1719,17 +1837,7 @@ export default function ChatDetailScreen() {
         });
 
       } else {
-        const result = await sendMessage(chatId, {
-          content,
-          type: "text",
-          senderId: user?.id,
-          senderName: user?.displayName || tr("我", "Me"),
-          senderAvatar: botConfig.avatar,
-          senderType: "human",
-          isMe: true,
-          requestAI: false,
-          systemInstruction: botConfig.systemInstruction,
-        });
+        const result = await sendUserOnlyMessage(content);
         if (!result) {
           setFailedDraft(content);
         } else {
@@ -2333,14 +2441,9 @@ export default function ChatDetailScreen() {
       const canToggleOriginal = hasTranslatedText && sourceText !== "" && sourceText !== displayText;
       const originalVisible = Boolean(showOriginalByMessageId[raw.id]);
       const ownAvatar = (user?.avatar || botConfig.avatar || "").trim();
-      const avatarTag = meFinal ? null : inferAvatarTagFromSender(raw);
-      const avatarEntityType: "human" | "bot" | "npc" = meFinal
-        ? "human"
-        : avatarTag === "Bot"
-          ? "bot"
-          : avatarTag === "NPC"
-            ? "npc"
-            : "human";
+      const avatarTag = meFinal ? "Human" : inferAvatarTagFromSender(raw);
+      const avatarEntityType: "human" | "bot" | "npc" =
+        avatarTag === "Bot" ? "bot" : avatarTag === "NPC" ? "npc" : "human";
       const messageAvatar = (() => {
         const senderAvatar = (raw.senderAvatar || "").trim();
         if (senderAvatar) return senderAvatar;
@@ -2429,11 +2532,22 @@ export default function ChatDetailScreen() {
                   <Ionicons name="person-outline" size={14} color="rgba(226,232,240,0.86)" />
                 </View>
               )}
-              {avatarTag ? (
-                <View style={[styles.avatarTag, avatarTag === "NPC" ? styles.avatarTagNpc : styles.avatarTagBot]}>
-                  <Text style={styles.avatarTagText}>{avatarTag}</Text>
-                </View>
-              ) : null}
+              <View
+                style={[
+                  styles.avatarTag,
+                  avatarTag === "NPC"
+                    ? styles.avatarTagNpc
+                    : avatarTag === "Bot"
+                      ? styles.avatarTagBot
+                      : styles.avatarTagHuman,
+                ]}
+              >
+                <Ionicons
+                  name={avatarTag === "NPC" ? "sparkles" : avatarTag === "Bot" ? "hardware-chip" : "person"}
+                  size={8}
+                  color={avatarTag === "Human" ? "rgba(12,18,32,0.95)" : "rgba(248,250,252,0.96)"}
+                />
+              </View>
             </Pressable>
           ) : null}
           <Pressable
@@ -2465,11 +2579,22 @@ export default function ChatDetailScreen() {
                   <Ionicons name="person-outline" size={14} color="rgba(226,232,240,0.86)" />
                 </View>
               )}
-              {avatarTag ? (
-                <View style={[styles.avatarTag, avatarTag === "NPC" ? styles.avatarTagNpc : styles.avatarTagBot]}>
-                  <Text style={styles.avatarTagText}>{avatarTag}</Text>
-                </View>
-              ) : null}
+              <View
+                style={[
+                  styles.avatarTag,
+                  avatarTag === "NPC"
+                    ? styles.avatarTagNpc
+                    : avatarTag === "Bot"
+                      ? styles.avatarTagBot
+                      : styles.avatarTagHuman,
+                ]}
+              >
+                <Ionicons
+                  name={avatarTag === "NPC" ? "sparkles" : avatarTag === "Bot" ? "hardware-chip" : "person"}
+                  size={8}
+                  color={avatarTag === "Human" ? "rgba(12,18,32,0.95)" : "rgba(248,250,252,0.96)"}
+                />
+              </View>
             </Pressable>
           ) : null}
         </View>
@@ -3264,16 +3389,22 @@ export default function ChatDetailScreen() {
                                 <Ionicons name="person-outline" size={14} color="rgba(226,232,240,0.86)" />
                               </View>
                             )}
-                            {memberTag ? (
-                              <View
-                                style={[
-                                  styles.avatarTag,
-                                  memberTag === "NPC" ? styles.avatarTagNpc : styles.avatarTagBot,
-                                ]}
-                              >
-                                <Text style={styles.avatarTagText}>{memberTag}</Text>
-                              </View>
-                            ) : null}
+                            <View
+                              style={[
+                                styles.avatarTag,
+                                memberTag === "NPC"
+                                  ? styles.avatarTagNpc
+                                  : memberTag === "Bot"
+                                    ? styles.avatarTagBot
+                                    : styles.avatarTagHuman,
+                              ]}
+                            >
+                              <Ionicons
+                                name={memberTag === "NPC" ? "sparkles" : memberTag === "Bot" ? "hardware-chip" : "person"}
+                                size={8}
+                                color={memberTag === "Human" ? "rgba(12,18,32,0.95)" : "rgba(248,250,252,0.96)"}
+                              />
+                            </View>
                           </Pressable>
                           <View style={styles.memberMain}>
                             <Text style={styles.memberName}>{m.name}</Text>
@@ -3471,41 +3602,7 @@ export default function ChatDetailScreen() {
                       (pendingMemberAdds.length === 0 || memberApplyBusy) && styles.memberFooterCtaDisabled,
                     ]}
                     disabled={pendingMemberAdds.length === 0 || memberApplyBusy}
-                    onPress={() => {
-                      Alert.alert(
-                        tr("确认创建群聊", "Confirm Group Creation"),
-                        tr(
-                          "确定要创建群聊并添加所选成员吗？",
-                          "Are you sure you want to create the group and add selected members?"
-                        ),
-                        [
-                          { text: tr("取消", "Cancel"), style: "cancel" },
-                          {
-                            text: tr("确定", "Confirm"),
-                            style: "default",
-                            onPress: () => {
-                              void (async () => {
-                                setMemberApplyBusy(true);
-                                setMemberPoolError(null);
-                                try {
-                                  for (const item of pendingMemberAdds) {
-                                    await item.onAdd();
-                                  }
-                                  await listMembers(chatId);
-                                  setMemberPoolNonce((n) => n + 1);
-                                  setPendingMemberAdds([]);
-                                  setMemberModal(false);
-                                } catch (err) {
-                                  setMemberPoolError(formatApiError(err));
-                                } finally {
-                                  setMemberApplyBusy(false);
-                                }
-                              })();
-                            },
-                          },
-                        ]
-                      );
-                    }}
+                    onPress={() => void applyPendingMemberAdds()}
                   >
                     <Text style={styles.memberFooterCtaText}>
                       {memberApplyBusy ? tr("处理中...", "Applying...") : tr("确定", "Confirm")}
@@ -3535,6 +3632,38 @@ export default function ChatDetailScreen() {
                       ? tr("流式输出：开", "Streaming: On")
                       : tr("流式输出：关", "Streaming: Off")}
                   </Text>
+                </Pressable>
+              ) : null}
+              {thread.isGroup ? (
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => {
+                    updateGroupReplyMode("all");
+                    setThreadMenuModal(false);
+                  }}
+                >
+                  <Ionicons
+                    name={groupReplyMode === "all" ? "checkmark-circle" : "ellipse-outline"}
+                    size={16}
+                    color={groupReplyMode === "all" ? "rgba(147,197,253,0.95)" : "rgba(148,163,184,0.9)"}
+                  />
+                  <Text style={styles.menuText}>{tr("NPC参与：全部自动回复", "NPC: Auto reply all")}</Text>
+                </Pressable>
+              ) : null}
+              {thread.isGroup ? (
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => {
+                    updateGroupReplyMode("mention");
+                    setThreadMenuModal(false);
+                  }}
+                >
+                  <Ionicons
+                    name={groupReplyMode === "mention" ? "checkmark-circle" : "ellipse-outline"}
+                    size={16}
+                    color={groupReplyMode === "mention" ? "rgba(147,197,253,0.95)" : "rgba(148,163,184,0.9)"}
+                  />
+                  <Text style={styles.menuText}>{tr("NPC参与：仅@时回复", "NPC: Mention only")}</Text>
                 </Pressable>
               ) : null}
               {linkedFriend ? (
@@ -3726,15 +3855,19 @@ const styles = StyleSheet.create({
   },
   avatarTag: {
     position: "absolute",
-    left: 3,
-    right: 3,
-    bottom: -7,
-    height: 11,
-    borderRadius: 999,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    right: -1,
+    bottom: -1,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
+  },
+  avatarTagHuman: {
+    backgroundColor: "rgba(226,232,240,0.95)",
+    borderColor: "rgba(191,219,254,0.78)",
   },
   avatarTagBot: {
     backgroundColor: "rgba(37,99,235,0.96)",
@@ -3743,13 +3876,6 @@ const styles = StyleSheet.create({
   avatarTagNpc: {
     backgroundColor: "rgba(15,118,110,0.96)",
     borderColor: "rgba(167,243,208,0.78)",
-  },
-  avatarTagText: {
-    color: "#f8fafc",
-    fontSize: 7,
-    lineHeight: 8,
-    fontWeight: "900",
-    letterSpacing: 0.25,
   },
   bubble: {
     maxWidth: "86%",

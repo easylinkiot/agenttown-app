@@ -47,6 +47,8 @@ type GroupCategoryOption = {
   en: string;
 };
 
+type PresenceRole = "human" | "bot" | "npc";
+
 const GROUP_CATEGORY_OPTIONS: GroupCategoryOption[] = [
   { key: "toc_learning", groupType: "toc", zh: "学习群", en: "Learning" },
   { key: "toc_interest", groupType: "toc", zh: "兴趣群", en: "Interest" },
@@ -62,6 +64,12 @@ const GROUP_CATEGORY_OPTIONS: GroupCategoryOption[] = [
 function groupTypeFromSubCategory(subCategory: string): "toc" | "tob" {
   const found = GROUP_CATEGORY_OPTIONS.find((item) => item.key === subCategory);
   return found?.groupType || "toc";
+}
+
+function presenceRoleIcon(role: PresenceRole): React.ComponentProps<typeof Ionicons>["name"] {
+  if (role === "bot") return "hardware-chip";
+  if (role === "npc") return "sparkles";
+  return "person";
 }
 
 export default function HomeScreen() {
@@ -133,19 +141,22 @@ export default function HomeScreen() {
     const items = [
       ...friends
         .filter((f) => {
-          if (f.kind !== "bot") return false;
           if (isMyBotId(f.userId) || isMyBotId(f.id)) return false;
           const normalizedName = (f.name || "").trim().toLowerCase();
-          return normalizedName !== "mybot";
+          if (f.kind === "bot" && normalizedName === "mybot") return false;
+          return true;
         })
-        .map((f) => ({
-          id: `friend:${f.id}`,
-          entityId: f.userId || f.id,
-          name: f.name,
-          avatar: f.avatar,
-          entityType: "bot" as const,
-          badge: "Bot" as const,
-        })),
+        .map((f) => {
+          const role: PresenceRole = f.kind === "bot" ? "bot" : "human";
+          return {
+            id: `friend:${f.id}`,
+            entityId: f.userId || f.id,
+            name: f.name,
+            avatar: f.avatar,
+            entityType: role,
+            role,
+          };
+        }),
       ...agents
         .filter((a) => {
           const id = (a.id || "").trim();
@@ -163,9 +174,9 @@ export default function HomeScreen() {
           name: a.name,
           avatar: a.avatar,
           entityType: "npc" as const,
-          badge: "NPC" as const,
+          role: "npc" as const,
         })),
-    ].filter((x) => !!x.avatar);
+    ];
     return items.slice(0, 9);
   }, [agents, friends, user?.displayName, user?.id]);
 
@@ -644,33 +655,55 @@ export default function HomeScreen() {
                 <Ionicons name="add" size={18} color="rgba(226,232,240,0.92)" />
               </Pressable>
               {presence.length
-                ? presence
-                  .filter((item) => item.badge !== "Bot")
-                  .map((item) => (
-                  <Pressable
-                    key={item.id}
-                    style={styles.presenceItem}
-                    onPress={() =>
-                      openEntityConfig({
-                        entityType: item.entityType,
-                        entityId: item.entityId,
-                        name: item.name,
-                        avatar: item.avatar,
-                      })
-                    }
-                  >
-                    <Image source={{ uri: item.avatar }} style={styles.presenceAvatar} />
-                    <View
-                      style={[
-                        styles.presenceTypeTag,
-                        item.badge === "NPC" ? styles.presenceTypeTagNpc : styles.presenceTypeTagBot,
-                      ]}
+                ? presence.map((item) => {
+                  const fallbackBase = item.role === "human" ? tr("好友", "Friend") : item.role.toUpperCase();
+                  const suffix = (item.entityId || item.id).replace(/[^a-zA-Z0-9]/g, "").slice(-4);
+                  const displayName = (item.name || "").trim() || (suffix ? `${fallbackBase}-${suffix}` : fallbackBase);
+                  return (
+                    <Pressable
+                      key={item.id}
+                      style={styles.presenceItem}
+                      onPress={() =>
+                        openEntityConfig({
+                          entityType: item.entityType,
+                          entityId: item.entityId,
+                          name: item.name,
+                          avatar: item.avatar,
+                        })
+                      }
                     >
-                      <Text style={styles.presenceTypeTagText}>{item.badge}</Text>
-                    </View>
-                    <View style={styles.presenceDot} />
-                  </Pressable>
-                  ))
+                      <View style={styles.presenceAvatarWrap}>
+                        {item.avatar ? (
+                          <Image source={{ uri: item.avatar }} style={styles.presenceAvatar} />
+                        ) : (
+                          <View style={[styles.presenceAvatar, styles.presenceAvatarFallback]}>
+                            <Ionicons name="person-outline" size={18} color="rgba(226,232,240,0.82)" />
+                          </View>
+                        )}
+                        <View
+                          style={[
+                            styles.presenceRoleBadge,
+                            item.role === "npc"
+                              ? styles.presenceRoleBadgeNpc
+                              : item.role === "bot"
+                                ? styles.presenceRoleBadgeBot
+                                : styles.presenceRoleBadgeHuman,
+                          ]}
+                        >
+                          <Ionicons
+                            name={presenceRoleIcon(item.role)}
+                            size={9}
+                            color={item.role === "human" ? "rgba(12,18,32,0.95)" : "rgba(248,250,252,0.95)"}
+                          />
+                        </View>
+                        <View style={styles.presenceDot} />
+                      </View>
+                      <Text style={styles.presenceName} numberOfLines={1}>
+                        {displayName}
+                      </Text>
+                    </Pressable>
+                  );
+                })
                 : null}
             </ScrollView>
           </View>
@@ -1148,6 +1181,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   presenceItem: {
+    width: 56,
+    alignItems: "center",
+    gap: 5,
+  },
+  presenceAvatarWrap: {
     width: 46,
     height: 46,
     borderRadius: 23,
@@ -1162,31 +1200,42 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
   },
-  presenceTypeTag: {
+  presenceAvatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(148,163,184,0.45)",
+  },
+  presenceRoleBadge: {
     position: "absolute",
-    left: 6,
-    right: 6,
-    bottom: -8,
-    height: 12,
-    borderRadius: 999,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    right: 0,
+    bottom: 0,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 2,
   },
-  presenceTypeTagBot: {
+  presenceRoleBadgeHuman: {
+    backgroundColor: "rgba(226,232,240,0.95)",
+    borderColor: "rgba(191,219,254,0.72)",
+  },
+  presenceRoleBadgeBot: {
     backgroundColor: "rgba(37,99,235,0.95)",
     borderColor: "rgba(191,219,254,0.78)",
   },
-  presenceTypeTagNpc: {
+  presenceRoleBadgeNpc: {
     backgroundColor: "rgba(15,118,110,0.95)",
     borderColor: "rgba(167,243,208,0.78)",
   },
-  presenceTypeTagText: {
-    color: "#f8fafc",
-    fontSize: 8,
-    lineHeight: 9,
-    fontWeight: "900",
-    letterSpacing: 0.3,
+  presenceName: {
+    width: "100%",
+    color: "rgba(226,232,240,0.9)",
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "700",
+    textAlign: "center",
   },
   presenceAddInline: {
     width: 46,

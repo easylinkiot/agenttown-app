@@ -18,13 +18,13 @@ function isBotLikeName(name: string) {
   return /\bbot\b/i.test(safe) || safe.includes("助理");
 }
 
-function inferAvatarTag(chat: ChatThread): "NPC" | "Bot" | null {
+function inferAvatarTag(chat: ChatThread): "Human" | "NPC" | "Bot" {
   const id = (chat.id || "").trim().toLowerCase();
   const tag = (chat.tag || "").trim().toLowerCase();
   if (id === "mybot" || id.startsWith("agent_userbot_")) return "Bot";
   if (isBotLikeName(chat.name)) return "Bot";
   if (id.startsWith("agent_") || tag === "npc" || tag === "agent") return "NPC";
-  return null;
+  return "Human";
 }
 
 function resolveAvatarUri(chat: ChatThread) {
@@ -75,11 +75,22 @@ export function ChatListItem({
               <Ionicons name="person-outline" size={18} color="rgba(226,232,240,0.82)" />
             </View>
           )}
-          {avatarTag ? (
-            <View style={[styles.avatarTag, avatarTag === "NPC" ? styles.avatarTagNpc : styles.avatarTagBot]}>
-              <Text style={styles.avatarTagText}>{avatarTag}</Text>
-            </View>
-          ) : null}
+          <View
+            style={[
+              styles.avatarRoleBadge,
+              avatarTag === "NPC"
+                ? styles.avatarRoleBadgeNpc
+                : avatarTag === "Bot"
+                  ? styles.avatarRoleBadgeBot
+                  : styles.avatarRoleBadgeHuman,
+            ]}
+          >
+            <Ionicons
+              name={avatarTag === "NPC" ? "sparkles" : avatarTag === "Bot" ? "hardware-chip" : "person"}
+              size={10}
+              color={avatarTag === "Human" ? "rgba(12,18,32,0.95)" : "rgba(248,250,252,0.96)"}
+            />
+          </View>
           {!!chat.unreadCount && (
             <View style={[styles.unreadBadge, isNeo && styles.unreadBadgeNeo]}>
               <Text style={styles.unreadText}>{chat.unreadCount}</Text>
@@ -95,11 +106,22 @@ export function ChatListItem({
               <Ionicons name="person-outline" size={18} color="rgba(226,232,240,0.82)" />
             </View>
           )}
-          {avatarTag ? (
-            <View style={[styles.avatarTag, avatarTag === "NPC" ? styles.avatarTagNpc : styles.avatarTagBot]}>
-              <Text style={styles.avatarTagText}>{avatarTag}</Text>
-            </View>
-          ) : null}
+          <View
+            style={[
+              styles.avatarRoleBadge,
+              avatarTag === "NPC"
+                ? styles.avatarRoleBadgeNpc
+                : avatarTag === "Bot"
+                  ? styles.avatarRoleBadgeBot
+                  : styles.avatarRoleBadgeHuman,
+            ]}
+          >
+            <Ionicons
+              name={avatarTag === "NPC" ? "sparkles" : avatarTag === "Bot" ? "hardware-chip" : "person"}
+              size={10}
+              color={avatarTag === "Human" ? "rgba(12,18,32,0.95)" : "rgba(248,250,252,0.96)"}
+            />
+          </View>
           {!!chat.unreadCount && (
             <View style={[styles.unreadBadge, isNeo && styles.unreadBadgeNeo]}>
               <Text style={styles.unreadText}>{chat.unreadCount}</Text>
@@ -172,31 +194,29 @@ const styles = StyleSheet.create({
   avatarWrap: {
     position: "relative",
   },
-  avatarTag: {
+  avatarRoleBadge: {
     position: "absolute",
-    left: 6,
-    right: 6,
-    bottom: -7,
-    height: 12,
-    borderRadius: 999,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    right: -2,
+    bottom: -2,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 2,
   },
-  avatarTagBot: {
+  avatarRoleBadgeHuman: {
+    backgroundColor: "rgba(226,232,240,0.95)",
+    borderColor: "rgba(191,219,254,0.78)",
+  },
+  avatarRoleBadgeBot: {
     backgroundColor: "rgba(37,99,235,0.96)",
     borderColor: "rgba(191,219,254,0.78)",
   },
-  avatarTagNpc: {
+  avatarRoleBadgeNpc: {
     backgroundColor: "rgba(15,118,110,0.96)",
     borderColor: "rgba(167,243,208,0.78)",
-  },
-  avatarTagText: {
-    color: "#f8fafc",
-    fontSize: 8,
-    lineHeight: 9,
-    fontWeight: "900",
-    letterSpacing: 0.3,
   },
   avatar: {
     width: 42,
