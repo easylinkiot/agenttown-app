@@ -25,7 +25,24 @@ function waitMs(ms) {
 }
 
 async function waitForHome(timeout = 30000) {
-  await waitFor(element(by.id("home-mybot-entry"))).toBeVisible().withTimeout(timeout);
+  const startedAt = Date.now();
+  const waitAttempts = [
+    (remain) => waitFor(element(by.id("home-chat-list"))).toBeVisible().withTimeout(Math.max(1000, remain)),
+    (remain) => waitFor(element(by.id("home-mybot-entry"))).toBeVisible().withTimeout(Math.max(1000, remain)),
+  ];
+
+  for (const attempt of waitAttempts) {
+    const elapsed = Date.now() - startedAt;
+    const remain = Math.max(1000, timeout - elapsed);
+    try {
+      await attempt(remain);
+      return;
+    } catch {
+      // Try fallback anchor.
+    }
+  }
+
+  throw new Error("home anchors not visible: home-chat-list/home-mybot-entry");
 }
 
 async function signInIfNeeded() {
@@ -37,7 +54,13 @@ async function signInIfNeeded() {
   }
 
   await waitFor(element(by.id("auth-email-input"))).toBeVisible().withTimeout(30000);
+  await element(by.id("auth-email-input")).tap();
   await element(by.id("auth-email-input")).replaceText(email);
+  await waitFor(element(by.id("auth-password-input")))
+    .toBeVisible()
+    .whileElement(by.id("auth-sign-in-scroll"))
+    .scroll(120, "down");
+  await element(by.id("auth-password-input")).tap();
   await element(by.id("auth-password-input")).replaceText(password);
   try {
     await element(by.id("auth-password-input")).tapReturnKey();

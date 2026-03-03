@@ -15,14 +15,34 @@ function extractDetoxFlags(source: Record<string, unknown> | null | undefined) {
   const picked: Record<string, unknown> = {};
   for (const [key, rawValue] of Object.entries(source)) {
     const normalizedKey = key.startsWith("-") ? key.slice(1) : key;
-    if (
-      normalizedKey === "detoxServer" ||
-      normalizedKey === "detoxSessionId" ||
-      normalizedKey === "e2eMode" ||
-      normalizedKey === "detoxDebugVisibility" ||
-      normalizedKey === "detoxDisableHierarchyDump"
-    ) {
-      picked[normalizedKey] = normalizeLaunchArgValue(rawValue);
+    const canonical = normalizedKey.trim().toLowerCase();
+
+    if (canonical === "detoxserver") {
+      picked.detoxServer = normalizeLaunchArgValue(rawValue);
+      continue;
+    }
+    if (canonical === "detoxsessionid") {
+      picked.detoxSessionId = normalizeLaunchArgValue(rawValue);
+      continue;
+    }
+    if (canonical === "e2emode") {
+      picked.e2eMode = normalizeLaunchArgValue(rawValue);
+      continue;
+    }
+    if (canonical === "e2eauthemail") {
+      picked.e2eAuthEmail = typeof rawValue === "string" ? rawValue : String(rawValue ?? "");
+      continue;
+    }
+    if (canonical === "e2eauthpassword") {
+      picked.e2eAuthPassword = typeof rawValue === "string" ? rawValue : String(rawValue ?? "");
+      continue;
+    }
+    if (canonical === "detoxdebugvisibility") {
+      picked.detoxDebugVisibility = normalizeLaunchArgValue(rawValue);
+      continue;
+    }
+    if (canonical === "detoxdisablehierarchydump") {
+      picked.detoxDisableHierarchyDump = normalizeLaunchArgValue(rawValue);
     }
   }
 
