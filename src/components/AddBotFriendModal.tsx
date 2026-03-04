@@ -117,6 +117,9 @@ export function AddBotFriendModal({
               placeholder={tr("Bot 名称", "Bot name")}
               placeholderTextColor={isNeo ? "rgba(203,213,225,0.6)" : "#94a3b8"}
               style={[styles.input, isNeo && styles.inputNeo]}
+            autoComplete="off"
+            textContentType="oneTimeCode"
+            importantForAutofill="no"
             />
             <TextInput
               value={role}
@@ -124,6 +127,9 @@ export function AddBotFriendModal({
               placeholder={tr("角色（可选）", "Role (optional)")}
               placeholderTextColor={isNeo ? "rgba(203,213,225,0.6)" : "#94a3b8"}
               style={[styles.input, isNeo && styles.inputNeo]}
+            autoComplete="off"
+            textContentType="oneTimeCode"
+            importantForAutofill="no"
             />
             <TextInput
               value={company}
@@ -131,6 +137,9 @@ export function AddBotFriendModal({
               placeholder={tr("公司（可选）", "Company (optional)")}
               placeholderTextColor={isNeo ? "rgba(203,213,225,0.6)" : "#94a3b8"}
               style={[styles.input, isNeo && styles.inputNeo]}
+            autoComplete="off"
+            textContentType="oneTimeCode"
+            importantForAutofill="no"
             />
             <TextInput
               value={avatar}
@@ -138,6 +147,9 @@ export function AddBotFriendModal({
               placeholder={tr("头像 URL", "Avatar URL")}
               placeholderTextColor={isNeo ? "rgba(203,213,225,0.6)" : "#94a3b8"}
               style={[styles.input, isNeo && styles.inputNeo]}
+            autoComplete="off"
+            textContentType="oneTimeCode"
+            importantForAutofill="no"
             />
 
             <View style={styles.actionRow}>

@@ -96,6 +96,9 @@ export default function SignUpScreen() {
             placeholder={tr("电子邮件", "Email")}
             keyboardType="email-address"
             autoCapitalize="none"
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={[styles.input, submitted && passwordInvalid && styles.inputError]}
@@ -104,6 +107,9 @@ export default function SignUpScreen() {
             placeholder={tr("密码", "Password")}
             secureTextEntry
             autoCapitalize="none"
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={[styles.input, submitted && confirmPasswordInvalid && styles.inputError]}
@@ -112,6 +118,9 @@ export default function SignUpScreen() {
             placeholder={tr("确认密码", "Confirm Password")}
             secureTextEntry
             autoCapitalize="none"
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
 
           <Text style={styles.helperText}>{tr("密码至少 8 位", "Password must be at least 8 characters")}</Text>

@@ -405,6 +405,9 @@ export default function AgentsScreen() {
                         style={styles.inputText}
                         autoCapitalize="none"
                         autoCorrect={false}
+                      autoComplete="off"
+                      textContentType="oneTimeCode"
+                      importantForAutofill="no"
                       />
                     </View>
                   </View>
@@ -419,6 +422,9 @@ export default function AgentsScreen() {
                       placeholder={tr("例如：Architect Bot", "e.g. Architect Bot")}
                       placeholderTextColor="rgba(148,163,184,0.75)"
                       style={styles.inputText}
+                    autoComplete="off"
+                    textContentType="oneTimeCode"
+                    importantForAutofill="no"
                     />
                   </View>
                 </View>
@@ -433,6 +439,9 @@ export default function AgentsScreen() {
                       placeholder={tr("例如：Python 后端开发者", "e.g. Python Backend Developer")}
                       placeholderTextColor="rgba(148,163,184,0.75)"
                       style={styles.inputText}
+                    autoComplete="off"
+                    textContentType="oneTimeCode"
+                    importantForAutofill="no"
                     />
                   </View>
                 </View>
@@ -448,6 +457,9 @@ export default function AgentsScreen() {
                       style={[styles.inputText, styles.inputTextTall]}
                       multiline
                       textAlignVertical="top"
+                    autoComplete="off"
+                    textContentType="oneTimeCode"
+                    importantForAutofill="no"
                     />
                   </View>
                 </View>
@@ -498,6 +510,9 @@ export default function AgentsScreen() {
                     placeholder={tr("Skill 名称", "Skill name")}
                     placeholderTextColor="rgba(148,163,184,0.9)"
                     style={styles.fieldInput}
+                  autoComplete="off"
+                  textContentType="oneTimeCode"
+                  importantForAutofill="no"
                   />
                 </View>
                 <View style={styles.inlineBox}>
@@ -508,6 +523,9 @@ export default function AgentsScreen() {
                     placeholder={tr("Skill 描述", "Skill description")}
                     placeholderTextColor="rgba(148,163,184,0.9)"
                     style={styles.fieldInput}
+                  autoComplete="off"
+                  textContentType="oneTimeCode"
+                  importantForAutofill="no"
                   />
                 </View>
                 <View style={styles.inlineBox}>
@@ -520,6 +538,9 @@ export default function AgentsScreen() {
                     style={[styles.fieldInput, styles.fieldInputXL]}
                     multiline
                     textAlignVertical="top"
+                  autoComplete="off"
+                  textContentType="oneTimeCode"
+                  importantForAutofill="no"
                   />
                 </View>
 

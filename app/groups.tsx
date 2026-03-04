@@ -329,6 +329,9 @@ export default function GroupsScreen() {
                   placeholder={tr("搜索成员", "Search")}
                   placeholderTextColor="rgba(148,163,184,0.9)"
                   style={styles.searchInput}
+                autoComplete="off"
+                textContentType="oneTimeCode"
+                importantForAutofill="no"
                 />
               </View>
 

@@ -818,6 +818,9 @@ export default function HomeScreen() {
                 placeholder={tr("输入好友邮箱或账号标识", "Enter your friend's email or account")}
                 placeholderTextColor="rgba(148,163,184,0.9)"
                 style={styles.input}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <Text style={styles.friendHelpText}>
                 {tr(
@@ -833,6 +836,9 @@ export default function HomeScreen() {
                   placeholder={tr("粘贴二维码内容以添加好友", "Paste QR payload to add friend")}
                   placeholderTextColor="rgba(148,163,184,0.9)"
                   style={[styles.input, styles.qrScanInput]}
+                autoComplete="off"
+                textContentType="oneTimeCode"
+                importantForAutofill="no"
                 />
               </View>
 
@@ -936,6 +942,9 @@ export default function HomeScreen() {
                 placeholder={tr("群名称", "Group name")}
                 placeholderTextColor="rgba(148,163,184,0.9)"
                 style={styles.input}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <TextInput
                 value={groupAvatar}
@@ -943,6 +952,9 @@ export default function HomeScreen() {
                 placeholder={tr("头像 URL（可选）", "Avatar URL (optional)")}
                 placeholderTextColor="rgba(148,163,184,0.9)"
                 style={styles.input}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <Text style={styles.requestTitle}>{tr("群类型子分类", "Group sub-category")}</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
@@ -984,6 +996,9 @@ export default function HomeScreen() {
                 placeholder={tr("群 NPC 名称（可选）", "Group NPC name (optional)")}
                 placeholderTextColor="rgba(148,163,184,0.9)"
                 style={styles.input}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <TextInput
                 value={groupCommanderUserId}
@@ -991,6 +1006,9 @@ export default function HomeScreen() {
                 placeholder={tr("可发号施令用户ID（可选）", "Command userId (optional)")}
                 placeholderTextColor="rgba(148,163,184,0.9)"
                 style={styles.input}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <View style={styles.formFooter}>
                 <Pressable

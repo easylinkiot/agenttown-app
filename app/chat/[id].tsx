@@ -3224,6 +3224,9 @@ export default function ChatDetailScreen() {
                   placeholderTextColor="rgba(148,163,184,0.9)"
                   style={styles.aiAskInput}
                   editable={!isStreaming && !isAddingTasks}
+                autoComplete="off"
+                textContentType="oneTimeCode"
+                importantForAutofill="no"
                 />
               </View>
               <View style={styles.aiModeRow}>
@@ -3444,6 +3447,9 @@ export default function ChatDetailScreen() {
                   marginBottom: 10,
                 }}
                 editable={!myBotBusy}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               {myBotError ? <Text style={styles.aiError}>{myBotError}</Text> : null}
               {myBotAnswer ? (
@@ -3595,6 +3601,9 @@ export default function ChatDetailScreen() {
                   placeholder={tr("搜索成员", "Search members")}
                   placeholderTextColor="rgba(148,163,184,0.9)"
                   style={styles.searchInput}
+                autoComplete="off"
+                textContentType="oneTimeCode"
+                importantForAutofill="no"
                 />
               </View>
 

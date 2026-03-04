@@ -23,7 +23,6 @@ import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
 import { tx } from "@/src/i18n/translate";
 import { formatApiError } from "@/src/lib/api";
 import { useAgentTown } from "@/src/state/agenttown-context";
-import { isE2ETestMode } from "@/src/utils/e2e";
 import {
   AUTH_ERROR_OTP_EXPIRED,
   AUTH_ERROR_OTP_INVALID,
@@ -146,7 +145,6 @@ function localizeAuthErrorMessage(
 }
 
 export default function SignInScreen() {
-  const isE2E = isE2ETestMode();
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string }>();
   const { language, updateLanguage } = useAgentTown();
@@ -561,8 +559,9 @@ export default function SignInScreen() {
             placeholder={tr("电子邮件", "Email")}
             keyboardType="email-address"
             autoCapitalize="none"
-            autoComplete={isE2E ? "off" : "email"}
-            textContentType={isE2E ? "none" : "username"}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             testID="auth-password-input"
@@ -572,8 +571,9 @@ export default function SignInScreen() {
             placeholder={tr("密码", "Password")}
             secureTextEntry
             autoCapitalize="none"
-            autoComplete={isE2E ? "off" : "password"}
-            textContentType={isE2E ? "oneTimeCode" : "password"}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <View style={styles.auxActionRow}>
             <Pressable
@@ -631,6 +631,9 @@ export default function SignInScreen() {
               onChangeText={setProfileName}
               placeholder={tr("用户名", "Username")}
               autoCapitalize="words"
+            autoComplete="off"
+            textContentType="oneTimeCode"
+            importantForAutofill="no"
             />
             <TextInput
               style={styles.input}
@@ -639,6 +642,9 @@ export default function SignInScreen() {
               placeholder={tr("电子邮件", "Email")}
               keyboardType="email-address"
               autoCapitalize="none"
+            autoComplete="off"
+            textContentType="oneTimeCode"
+            importantForAutofill="no"
             />
             <Pressable
               style={[styles.primaryBtn, busyKey !== null && styles.btnDisabled]}
@@ -664,6 +670,9 @@ export default function SignInScreen() {
             placeholder={language === "zh" ? "+86 13800138000" : "+1 415 555 0123"}
             keyboardType="phone-pad"
             autoCapitalize="none"
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <Pressable
             style={[styles.secondaryBtn, busyKey !== null && styles.btnDisabled]}
@@ -685,6 +694,9 @@ export default function SignInScreen() {
             placeholder={tr("6 位验证码", "6-digit code")}
             keyboardType="number-pad"
             autoCapitalize="none"
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <Pressable
             style={[styles.primaryBtn, busyKey !== null && styles.btnDisabled]}

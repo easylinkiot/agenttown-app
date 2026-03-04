@@ -224,6 +224,9 @@ export default function TasksScreen() {
                 placeholder={tr("任务标题", "Task title")}
                 placeholderTextColor="rgba(148,163,184,0.9)"
                 style={styles.input}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <TextInput
                 value={assignee}
@@ -231,6 +234,9 @@ export default function TasksScreen() {
                 placeholder={tr("负责人", "Assignee")}
                 placeholderTextColor="rgba(148,163,184,0.9)"
                 style={styles.input}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <View style={styles.modalFooter}>
                 <Pressable style={styles.ghostBtn} onPress={() => setCreateModal(false)}>

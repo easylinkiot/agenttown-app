@@ -95,6 +95,9 @@ export default function MiniAppDetailScreen() {
                     placeholder={tr("输入运行指令，例如：刷新今日数据", "Type run instruction, e.g. refresh today data")}
                     placeholderTextColor="rgba(100,116,139,0.90)"
                     style={styles.input}
+                  autoComplete="off"
+                  textContentType="oneTimeCode"
+                  importantForAutofill="no"
                   />
                   <Pressable
                     style={[styles.runBtn, (!app.installed || running) && styles.runBtnDisabled]}

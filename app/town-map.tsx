@@ -1586,6 +1586,9 @@ export default function TownMapScreen() {
                 }
                 placeholderTextColor={theme.askBarInputText}
                 onSubmitEditing={sendChat}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <Pressable
                 style={[styles.chatSendBtn, { backgroundColor: isNeo ? "rgba(255,255,255,0.16)" : "#e5e7eb" }]}

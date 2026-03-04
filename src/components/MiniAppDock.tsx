@@ -287,6 +287,9 @@ export function MiniAppDock() {
                   placeholderTextColor="rgba(148,163,184,0.85)"
                   multiline
                   style={styles.promptInput}
+                autoComplete="off"
+                textContentType="oneTimeCode"
+                importantForAutofill="no"
                 />
                 <Pressable
                   style={[styles.fab, (!prompt.trim() || generating) && styles.fabDisabled]}

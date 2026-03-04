@@ -475,6 +475,9 @@ export default function ConfigScreen() {
               onChangeText={setProfileName}
               placeholder={tr("用户名", "Username")}
               placeholderTextColor="rgba(148,163,184,0.85)"
+            autoComplete="off"
+            textContentType="oneTimeCode"
+            importantForAutofill="no"
             />
             <TextInput
               style={styles.neoAccountField}
@@ -484,6 +487,9 @@ export default function ConfigScreen() {
               placeholderTextColor="rgba(148,163,184,0.85)"
               keyboardType="email-address"
               autoCapitalize="none"
+            autoComplete="off"
+            textContentType="oneTimeCode"
+            importantForAutofill="no"
             />
             <View style={styles.neoReadonlyRow}>
               <Ionicons name="call-outline" size={14} color="rgba(148,163,184,0.9)" />
@@ -556,6 +562,9 @@ export default function ConfigScreen() {
                 onChangeText={setName}
                 placeholder={tr("我的 Bot", "MyBot")}
                 placeholderTextColor="rgba(148,163,184,0.9)"
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
             </View>
           </View>
@@ -779,6 +788,9 @@ export default function ConfigScreen() {
               onChangeText={setInstruction}
               placeholder={tr("系统指令", "System instructions")}
               placeholderTextColor="rgba(148,163,184,0.7)"
+            autoComplete="off"
+            textContentType="oneTimeCode"
+            importantForAutofill="no"
             />
           </View>
 
@@ -853,6 +865,9 @@ export default function ConfigScreen() {
             value={profileName}
             onChangeText={setProfileName}
             placeholder={tr("用户名", "Username")}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={styles.accountInput}
@@ -861,6 +876,9 @@ export default function ConfigScreen() {
             placeholder={tr("电子邮件", "Email")}
             keyboardType="email-address"
             autoCapitalize="none"
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <Pressable style={styles.accountSaveBtn} onPress={handleSaveProfile} disabled={savingProfile}>
             {savingProfile ? (
@@ -990,12 +1008,15 @@ export default function ConfigScreen() {
           <View style={styles.identityRow}>
             <Image source={{ uri: avatar }} style={styles.avatar} />
             <View style={styles.identityInputWrap}>
-              <TextInput style={styles.nameInput} value={name} onChangeText={setName} />
+              <TextInput style={styles.nameInput} value={name} onChangeText={setName} autoComplete="off" textContentType="oneTimeCode" importantForAutofill="no" />
               <TextInput
                 style={styles.avatarInput}
                 value={avatar}
                 onChangeText={setAvatar}
                 placeholder={tr("头像 URL", "Avatar URL")}
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
             </View>
           </View>
@@ -1046,18 +1067,27 @@ export default function ConfigScreen() {
             placeholder={tr("技能名称", "Skill name")}
             value={skillForm.name}
             onChangeText={(value) => setSkillForm((prev) => ({ ...prev, name: value }))}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={styles.field}
             placeholder={tr("描述", "Description")}
             value={skillForm.description}
             onChangeText={(value) => setSkillForm((prev) => ({ ...prev, description: value }))}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={styles.field}
             placeholder={tr("触发条件", "Trigger")}
             value={skillForm.trigger}
             onChangeText={(value) => setSkillForm((prev) => ({ ...prev, trigger: value }))}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={[styles.field, styles.fieldTall]}
@@ -1065,30 +1095,45 @@ export default function ConfigScreen() {
             placeholder={tr("核心逻辑", "Core logic")}
             value={skillForm.logic}
             onChangeText={(value) => setSkillForm((prev) => ({ ...prev, logic: value }))}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={styles.field}
             placeholder={tr("必填参数", "Required params")}
             value={skillForm.requiredParams}
             onChangeText={(value) => setSkillForm((prev) => ({ ...prev, requiredParams: value }))}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={styles.field}
             placeholder={tr("可选参数", "Optional params")}
             value={skillForm.optionalParams}
             onChangeText={(value) => setSkillForm((prev) => ({ ...prev, optionalParams: value }))}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={styles.field}
             placeholder={tr("约束条件", "Constraints")}
             value={skillForm.constraints}
             onChangeText={(value) => setSkillForm((prev) => ({ ...prev, constraints: value }))}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <TextInput
             style={styles.field}
             placeholder={tr("示例", "Example")}
             value={skillForm.example}
             onChangeText={(value) => setSkillForm((prev) => ({ ...prev, example: value }))}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
           <Pressable style={styles.secondaryBtn} onPress={appendCustomSkill}>
             <Ionicons name="add-circle" size={16} color="#111827" />
@@ -1206,6 +1251,9 @@ export default function ConfigScreen() {
             value={instruction}
             onChangeText={setInstruction}
             placeholder={tr("系统指令", "System instructions")}
+          autoComplete="off"
+          textContentType="oneTimeCode"
+          importantForAutofill="no"
           />
         </View>
 

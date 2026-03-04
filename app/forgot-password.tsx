@@ -209,6 +209,9 @@ export default function ForgotPasswordScreen() {
                 placeholder={tr("电子邮件", "Email")}
                 keyboardType="email-address"
                 autoCapitalize="none"
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <Text style={styles.helperText}>
                 {tr("请输入注册时使用的邮箱。", "Enter the email used for registration.")}
@@ -234,6 +237,9 @@ export default function ForgotPasswordScreen() {
                 placeholder={tr("电子邮件", "Email")}
                 keyboardType="email-address"
                 autoCapitalize="none"
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <TextInput
                 style={[styles.input, submitted && codeInvalid && styles.inputError]}
@@ -241,6 +247,9 @@ export default function ForgotPasswordScreen() {
                 onChangeText={setCode}
                 placeholder={tr("验证码", "Verification Code")}
                 autoCapitalize="none"
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <Pressable
                 style={[styles.primaryBtn, verifyCodeDisabled && styles.btnDisabled]}
@@ -290,6 +299,9 @@ export default function ForgotPasswordScreen() {
                 placeholder={tr("新密码", "New Password")}
                 secureTextEntry
                 autoCapitalize="none"
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <TextInput
                 style={[styles.input, submitted && confirmPasswordInvalid && styles.inputError]}
@@ -298,6 +310,9 @@ export default function ForgotPasswordScreen() {
                 placeholder={tr("确认新密码", "Confirm New Password")}
                 secureTextEntry
                 autoCapitalize="none"
+              autoComplete="off"
+              textContentType="oneTimeCode"
+              importantForAutofill="no"
               />
               <Text style={styles.helperText}>{tr("密码至少 8 位", "Password must be at least 8 characters")}</Text>
               {resetTokenExpiresAt ? (
