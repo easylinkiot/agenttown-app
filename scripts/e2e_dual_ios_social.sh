@@ -42,7 +42,7 @@ echo "[3/4] Run dual-device chat test in parallel..."
   DETOX_SERVER="ws://127.0.0.1:${PORT_A}" \
   E2E_ACTOR=A \
   E2E_RUN_TAG="$RUN_TAG" \
-  detox test -c ios.sim.release.a --cleanup -- --testPathPattern=e2e/social-dual-device-chat.e2e.js
+  npx detox test -c ios.sim.release.a --cleanup -- --testPathPattern=e2e/social-dual-device-chat.e2e.js
 ) &
 PID_A=$!
 
@@ -50,7 +50,7 @@ PID_A=$!
   DETOX_SERVER="ws://127.0.0.1:${PORT_B}" \
   E2E_ACTOR=B \
   E2E_RUN_TAG="$RUN_TAG" \
-  detox test -c ios.sim.release.b --cleanup -- --testPathPattern=e2e/social-dual-device-chat.e2e.js
+  npx detox test -c ios.sim.release.b --cleanup -- --testPathPattern=e2e/social-dual-device-chat.e2e.js
 ) &
 PID_B=$!
 

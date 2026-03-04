@@ -31,6 +31,75 @@ describe("chatAssist helpers", () => {
     });
   });
 
+  it("parses translate/follow_up candidate arrays from assist payload", () => {
+    const next = reduceAssistCandidatesFromEvent(
+      "assist_candidates",
+      {
+        assist_candidates: {
+          translate_candidates: [{ id: "tr1", translated_text: "Hallo Welt" }],
+          follow_up_candidates: [{ id: "fu1", title: "Follow up", description: "Ping supplier", priority: "high" }],
+        },
+      },
+      []
+    );
+
+    expect(next).toHaveLength(2);
+    expect(next[0]).toMatchObject({ id: "tr1", kind: "translate", text: "Hallo Welt" });
+    expect(next[1]).toMatchObject({
+      id: "fu1",
+      kind: "follow_up",
+      title: "Follow up",
+      text: "Follow up\nPing supplier",
+      priority: "high",
+    });
+  });
+
+  it("parses nested payload/data wrapped assist candidates", () => {
+    const next = reduceAssistCandidatesFromEvent(
+      "assist_candidates",
+      {
+        payload: {
+          data: {
+            assist_candidates: {
+              translate_candidates: [{ id: "tr2", text: "Guten Tag", targetLanguage: "de" }],
+            },
+          },
+        },
+      },
+      []
+    );
+
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatchObject({
+      id: "tr2",
+      kind: "translate",
+      text: "Guten Tag",
+      targetLanguage: "de",
+    });
+  });
+
+  it("parses candidate list objects with items array", () => {
+    const next = reduceAssistCandidatesFromEvent(
+      "assist_candidates",
+      {
+        assist_candidates: {
+          translate_candidates: {
+            items: [{ id: "tr3", translated_text: "Hallo Welt", target_language: "de" }],
+          },
+        },
+      },
+      []
+    );
+
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatchObject({
+      id: "tr3",
+      kind: "translate",
+      text: "Hallo Welt",
+      targetLanguage: "de",
+    });
+  });
+
   it("merges single candidate updates by id", () => {
     const prev: AssistCandidate[] = [
       { id: "r1", kind: "reply", text: "Initial" },
@@ -48,6 +117,20 @@ describe("chatAssist helpers", () => {
     expect(next).toHaveLength(2);
     expect(next[0]).toMatchObject({ id: "r1", text: "Updated" });
     expect(next[1]).toMatchObject({ id: "r2", text: "Keep" });
+  });
+
+  it("merges single translate candidate by id", () => {
+    const prev: AssistCandidate[] = [{ id: "tr1", kind: "translate", text: "Hallo Welt" }];
+    const next = reduceAssistCandidatesFromEvent(
+      "assist_candidates",
+      {
+        translate_candidate: { id: "tr1", text: "Hello world" },
+      },
+      prev
+    );
+
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatchObject({ id: "tr1", kind: "translate", text: "Hello world" });
   });
 
   it("appends message_delta text into one streaming candidate", () => {

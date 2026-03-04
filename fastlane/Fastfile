@@ -97,6 +97,14 @@ platform :ios do
 
   desc "Build an App Store IPA locally"
   lane :build_release do |options|
+    api_base_url =
+      options[:api_base_url] ||
+      ENV["EXPO_PUBLIC_API_BASE_URL"] ||
+      ENV["AGENTTOWN_API_BASE_URL"] ||
+      "https://agenttown-api.kittens.cloud"
+    ENV["EXPO_PUBLIC_API_BASE_URL"] = api_base_url
+    UI.important("Using EXPO_PUBLIC_API_BASE_URL=#{api_base_url} for iOS release build")
+
     ensure_full_xcode_selected!
     ensure_ios_project!
     run_in_project_root("cd ios && pod install")

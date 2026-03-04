@@ -203,10 +203,20 @@ async function sendThreadMessage(token, threadId, content, ext = {}) {
   });
 }
 
+async function listThreadMessages(token, threadId, limit = 100) {
+  const params = new URLSearchParams();
+  if (limit > 0) params.set("limit", String(limit));
+  const qs = params.toString();
+  return apiRequest(`/v1/chat/threads/${encodeURIComponent(threadId)}/messages${qs ? `?${qs}` : ""}`, {
+    token,
+  });
+}
+
 module.exports = {
   ensureAccount,
   ensureFriendship,
   createThread,
   addThreadMember,
   sendThreadMessage,
+  listThreadMessages,
 };

@@ -275,6 +275,33 @@ function isPlaceholderTranslationText(
   return textLower.includes("[agenttown-fallback]");
 }
 
+function pickTranslatedCandidateText(
+  candidates: AssistCandidate[],
+  sourceText: string,
+  targetLanguage: ThreadDisplayLanguage
+) {
+  const src = (sourceText || "").trim();
+  const target = String(targetLanguage || "en").toLowerCase();
+  const translateRows = candidates.filter((candidate) => candidate.kind === "translate" && candidate.text.trim());
+
+  const languageMatched = translateRows.find((candidate) => {
+    const candidateLanguage = String(candidate.targetLanguage || "").toLowerCase();
+    if (candidateLanguage && candidateLanguage !== target) return false;
+    return !isPlaceholderTranslationText(candidate.text, src, targetLanguage);
+  });
+  if (languageMatched) return languageMatched.text.trim();
+
+  const translateFallback = translateRows.find(
+    (candidate) => !isPlaceholderTranslationText(candidate.text, src, targetLanguage)
+  );
+  if (translateFallback) return translateFallback.text.trim();
+
+  const genericFallback = candidates.find(
+    (candidate) => candidate.text.trim() && !isPlaceholderTranslationText(candidate.text, src, targetLanguage)
+  );
+  return (genericFallback?.text || "").trim();
+}
+
 function extractSessionIdFromSSEPayload(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
   const row = payload as { session_id?: unknown; sessionId?: unknown };
@@ -2238,11 +2265,7 @@ export default function ChatDetailScreen() {
           if (controller.signal.aborted) return;
           if (requestSeq !== autoTranslateRequestSeqRef.current) return;
 
-          const translatedText = (
-            latestCandidates.find((candidate) => candidate.kind === "translate" && candidate.text.trim())?.text ||
-            latestCandidates.find((candidate) => candidate.text.trim())?.text ||
-            ""
-          ).trim();
+          const translatedText = pickTranslatedCandidateText(latestCandidates, content, targetLanguage);
 
           if (!translatedText) continue;
 

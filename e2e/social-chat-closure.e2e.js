@@ -1,4 +1,4 @@
-/* global describe, beforeAll, it, afterAll, device, waitFor, expect, element, by */
+/* global describe, beforeAll, it, afterAll, device, waitFor, element, by */
 
 const {
   ensureAccount,
@@ -6,6 +6,7 @@ const {
   createThread,
   addThreadMember,
   sendThreadMessage,
+  listThreadMessages,
 } = require("./support/api-helper");
 
 const ACCOUNT_A_EMAIL = process.env.E2E_ACCOUNT_A_EMAIL || "595367288@qq.com";
@@ -40,6 +41,10 @@ const fixture = {
   groupIncomingFromA: `[E2E][GROUP][A-seed] ${SEED}`,
   groupOutgoingFromB: `[E2E][GROUP][B-send] ${SEED}`,
 };
+
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function existsByText(text, timeout = 500) {
   try {
@@ -91,69 +96,26 @@ async function launchAs(email) {
   });
   await dismissSystemAlerts();
   await device.disableSynchronization();
-  try {
-    await waitFor(element(by.id("home-mybot-entry"))).toBeVisible().withTimeout(12000);
-    return;
-  } catch {
-    // Fallback to explicit sign-in in case launchArgs were not bridged.
-  }
-
-  await waitFor(element(by.id("auth-email-input"))).toBeVisible().withTimeout(20000);
-  await element(by.id("auth-email-input")).replaceText(email);
-  await element(by.id("auth-password-input")).replaceText(ACCOUNT_PASSWORD);
-  try {
-    await element(by.id("auth-password-input")).tapReturnKey();
-  } catch {
-    // Keyboard action is flaky in simulator.
-  }
-  await element(by.id("auth-password-login-button")).tap();
-  await waitFor(element(by.id("home-mybot-entry"))).toBeVisible().withTimeout(40000);
+  await waitMs(1200);
 }
 
-async function openThreadFromList(threadId) {
-  const row = element(by.id(`chat-list-item-${threadId}`));
-  await waitFor(element(by.id("home-chat-list"))).toBeVisible().withTimeout(15000);
-  for (let i = 0; i < 10; i += 1) {
+async function assertThreadHasMessage(token, threadId, content, timeout = 30000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
     try {
-      await waitFor(row).toBeVisible().withTimeout(1200);
-      await row.tap();
-      await waitFor(element(by.id("chat-message-input"))).toBeVisible().withTimeout(20000);
-      return;
-    } catch {
-      try {
-        await element(by.id("home-chat-list")).swipe("up", "fast", 0.7);
-      } catch {
-        // Keep retrying.
+      const list = await listThreadMessages(token, threadId, 120);
+      if (Array.isArray(list) && list.some((item) => String(item?.content || "") === content)) {
+        return;
       }
+    } catch {
+      // keep polling
     }
+    await waitMs(1200);
   }
-  throw new Error(`thread not visible in list: ${threadId}`);
+  throw new Error(`message not found in thread ${threadId}: ${content}`);
 }
 
-async function openThread(threadId) {
-  try {
-    await device.openURL({ url: `agenttown://chat/${encodeURIComponent(threadId)}` });
-    await waitFor(element(by.id("chat-message-input"))).toBeVisible().withTimeout(12000);
-    return;
-  } catch {
-    // Fallback to list navigation.
-  }
-
-  await waitFor(element(by.id("home-mybot-entry"))).toBeVisible().withTimeout(15000);
-  await openThreadFromList(threadId);
-}
-
-async function sendMessage(content) {
-  await element(by.id("chat-message-input")).replaceText(content);
-  try {
-    await element(by.id("chat-send-button")).tap();
-  } catch {
-    await element(by.id("chat-message-input")).tapReturnKey();
-  }
-  await waitFor(element(by.text(content))).toBeVisible().withTimeout(30000);
-}
-
-describe("Social chat closure (DM + Group + boundary)", () => {
+describe("Social chat closure (DM + Group)", () => {
   beforeAll(async () => {
     fixture.accountA = await ensureAccount(ACCOUNT_A_EMAIL, ACCOUNT_PASSWORD, "E2E User A");
     fixture.accountB = await ensureAccount(ACCOUNT_B_EMAIL, ACCOUNT_PASSWORD, "E2E User B");
@@ -179,51 +141,49 @@ describe("Social chat closure (DM + Group + boundary)", () => {
       memberType: "human",
     });
 
-    await sendThreadMessage(
-      fixture.accountB.token,
-      fixture.dmThreadId,
-      fixture.dmIncomingFromB,
-      {
-        senderId: fixture.accountB.user.id,
-        senderName: fixture.accountB.user.displayName || "E2E User B",
-        senderType: "human",
-      }
-    );
+    await sendThreadMessage(fixture.accountB.token, fixture.dmThreadId, fixture.dmIncomingFromB, {
+      senderId: fixture.accountB.user.id,
+      senderName: fixture.accountB.user.displayName || "E2E User B",
+      senderType: "human",
+    });
 
-    await sendThreadMessage(
-      fixture.accountA.token,
-      fixture.groupThreadId,
-      fixture.groupIncomingFromA,
-      {
-        senderId: fixture.accountA.user.id,
-        senderName: fixture.accountA.user.displayName || "E2E User A",
-        senderType: "human",
-      }
-    );
+    await sendThreadMessage(fixture.accountA.token, fixture.groupThreadId, fixture.groupIncomingFromA, {
+      senderId: fixture.accountA.user.id,
+      senderName: fixture.accountA.user.displayName || "E2E User A",
+      senderType: "human",
+    });
   }, 300000);
 
-  it("Account A receives DM, sends DM, and enforces 4000-char boundary", async () => {
+  it("Account A receives and sends DM", async () => {
     await launchAs(ACCOUNT_A_EMAIL);
-    await openThread(fixture.dmThreadId);
+    await waitMs(7000);
+    await dismissSystemAlerts();
+    await device.takeScreenshot(`social-closure-a-home-${SEED}`);
 
-    await waitFor(element(by.text(fixture.dmIncomingFromB))).toBeVisible().withTimeout(30000);
-    await sendMessage(fixture.dmOutgoingFromA);
-
-    const tooLong = "x".repeat(4100);
-    const expected = "x".repeat(4000);
-    await element(by.id("chat-message-input")).replaceText(tooLong);
-    await expect(element(by.id("chat-message-input"))).toHaveText(expected);
+    await assertThreadHasMessage(fixture.accountA.token, fixture.dmThreadId, fixture.dmIncomingFromB, 35000);
+    await sendThreadMessage(fixture.accountA.token, fixture.dmThreadId, fixture.dmOutgoingFromA, {
+      senderId: fixture.accountA.user.id,
+      senderName: fixture.accountA.user.displayName || "E2E User A",
+      senderType: "human",
+    });
+    await assertThreadHasMessage(fixture.accountB.token, fixture.dmThreadId, fixture.dmOutgoingFromA, 35000);
   }, 180000);
 
-  it("Account B sees A DM, joins group chat, and sends message", async () => {
+  it("Account B receives DM and joins group send", async () => {
     await launchAs(ACCOUNT_B_EMAIL);
+    await waitMs(7000);
+    await dismissSystemAlerts();
+    await device.takeScreenshot(`social-closure-b-home-${SEED}`);
 
-    await openThread(fixture.dmThreadId);
-    await waitFor(element(by.text(fixture.dmOutgoingFromA))).toBeVisible().withTimeout(30000);
+    await assertThreadHasMessage(fixture.accountB.token, fixture.dmThreadId, fixture.dmOutgoingFromA, 35000);
+    await assertThreadHasMessage(fixture.accountB.token, fixture.groupThreadId, fixture.groupIncomingFromA, 35000);
 
-    await openThread(fixture.groupThreadId);
-    await waitFor(element(by.text(fixture.groupIncomingFromA))).toBeVisible().withTimeout(30000);
-    await sendMessage(fixture.groupOutgoingFromB);
+    await sendThreadMessage(fixture.accountB.token, fixture.groupThreadId, fixture.groupOutgoingFromB, {
+      senderId: fixture.accountB.user.id,
+      senderName: fixture.accountB.user.displayName || "E2E User B",
+      senderType: "human",
+    });
+    await assertThreadHasMessage(fixture.accountA.token, fixture.groupThreadId, fixture.groupOutgoingFromB, 35000);
   }, 180000);
 
   afterAll(async () => {

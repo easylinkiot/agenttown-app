@@ -41,6 +41,7 @@ export interface AssistCandidate {
   title?: string;
   description?: string;
   priority?: string;
+  targetLanguage?: "zh" | "en" | "de";
 }
 
 interface ChatAssistPayloadEnvelope {
@@ -66,6 +67,10 @@ interface ChatAssistPayloadEnvelope {
   };
   text?: unknown;
   message?: unknown;
+  payload?: unknown;
+  data?: unknown;
+  result?: unknown;
+  body?: unknown;
 }
 
 interface RunChatAssistHandlers {
@@ -121,10 +126,17 @@ const CHAT_ASSIST_CUSTOM_EVENTS: ChatAssistSSEEventName[] = [
 export function getApiBaseUrl() {
   const raw = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
   const trimmed = raw.replace(/\/+$/, "");
-  if (Platform.OS !== "android") return trimmed;
-  return trimmed
+  const normalized =
+    Platform.OS !== "android"
+      ? trimmed
+      : trimmed
     .replace(/^http:\/\/localhost(?=[:/]|$)/i, "http://10.0.2.2")
     .replace(/^http:\/\/127\.0\.0\.1(?=[:/]|$)/i, "http://10.0.2.2");
+  const isReleaseBuild = typeof __DEV__ === "undefined" ? true : !__DEV__;
+  if (isReleaseBuild && /^http:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2)(?=[:/]|$)/i.test(normalized)) {
+    return DEFAULT_API_BASE_URL;
+  }
+  return normalized;
 }
 
 function toText(value: unknown) {
@@ -198,6 +210,19 @@ function normalizeTaskCandidate(candidate: unknown, index: number): AssistCandid
   };
 }
 
+function normalizeCandidateTargetLanguage(value: unknown) {
+  switch (toText(value).toLowerCase()) {
+    case "zh":
+      return "zh" as const;
+    case "de":
+      return "de" as const;
+    case "en":
+      return "en" as const;
+    default:
+      return undefined;
+  }
+}
+
 function normalizeTranslateCandidate(candidate: unknown, index: number): AssistCandidate | null {
   if (typeof candidate === "string") {
     const text = toText(candidate);
@@ -214,14 +239,28 @@ function normalizeTranslateCandidate(candidate: unknown, index: number): AssistC
     text?: unknown;
     translation?: unknown;
     translated_text?: unknown;
+    content?: unknown;
+    output?: unknown;
+    target_language?: unknown;
+    targetLanguage?: unknown;
+    language?: unknown;
   };
-  const text = toText(row.text) || toText(row.translation) || toText(row.translated_text);
+  const text =
+    toText(row.text) ||
+    toText(row.translation) ||
+    toText(row.translated_text) ||
+    toText(row.content) ||
+    toText(row.output);
   if (!text) return null;
   const id = toText(row.id) || `translate_${index}`;
+  const targetLanguage = normalizeCandidateTargetLanguage(
+    row.target_language ?? row.targetLanguage ?? row.language
+  );
   return {
     id,
     kind: "translate",
     text,
+    targetLanguage,
   };
 }
 
@@ -266,21 +305,72 @@ function normalizeFollowUpCandidate(candidate: unknown, index: number): AssistCa
   };
 }
 
+function extractCandidateArray(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  if (!raw || typeof raw !== "object") return [];
+  const row = raw as {
+    items?: unknown;
+    list?: unknown;
+    candidates?: unknown;
+  };
+  if (Array.isArray(row.items)) return row.items;
+  if (Array.isArray(row.list)) return row.list;
+  if (Array.isArray(row.candidates)) return row.candidates;
+  return [];
+}
+
+function hasCandidateArray(raw: unknown) {
+  if (Array.isArray(raw)) return true;
+  if (!raw || typeof raw !== "object") return false;
+  const row = raw as {
+    items?: unknown;
+    list?: unknown;
+    candidates?: unknown;
+  };
+  return Array.isArray(row.items) || Array.isArray(row.list) || Array.isArray(row.candidates);
+}
+
 function normalizeCandidatesFromArray(raw: unknown, kind: "reply" | "task") {
-  if (!Array.isArray(raw)) return [] as AssistCandidate[];
+  const list = extractCandidateArray(raw);
+  if (list.length === 0) return [] as AssistCandidate[];
   if (kind === "reply") {
-    return raw
+    return list
       .map((item, index) => normalizeReplyCandidate(item, index))
       .filter((item): item is AssistCandidate => Boolean(item));
   }
-  return raw
+  return list
     .map((item, index) => normalizeTaskCandidate(item, index))
     .filter((item): item is AssistCandidate => Boolean(item));
 }
 
 function extractPayloadEnvelope(payload: unknown) {
   if (!payload || typeof payload !== "object") return {} as ChatAssistPayloadEnvelope;
-  return payload as ChatAssistPayloadEnvelope;
+  let cursor: unknown = payload;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!cursor || typeof cursor !== "object") return {} as ChatAssistPayloadEnvelope;
+    const row = cursor as ChatAssistPayloadEnvelope;
+    const hasKnownAssistFields =
+      row.assist_candidates !== undefined ||
+      row.reply_candidates !== undefined ||
+      row.task_candidates !== undefined ||
+      row.translate_candidates !== undefined ||
+      row.follow_up_candidates !== undefined ||
+      row.reply_candidate !== undefined ||
+      row.task_candidate !== undefined ||
+      row.translate_candidate !== undefined ||
+      row.follow_up_candidate !== undefined ||
+      row.delta !== undefined ||
+      row.text !== undefined;
+    if (hasKnownAssistFields) {
+      return row;
+    }
+    const nested = row.payload ?? row.data ?? row.result ?? row.body;
+    if (!nested || typeof nested !== "object") {
+      return row;
+    }
+    cursor = nested;
+  }
+  return cursor as ChatAssistPayloadEnvelope;
 }
 
 function extractTextDelta(eventName: string, payload: unknown) {
@@ -364,52 +454,77 @@ export function reduceAssistCandidatesFromEvent(
   const envelope = extractPayloadEnvelope(payload);
   const candidatesNode = envelope.assist_candidates;
 
-  const replyListRaw = candidatesNode?.reply_candidates ?? envelope.reply_candidates;
-  const taskListRaw = candidatesNode?.task_candidates ?? envelope.task_candidates;
-  const translateListRaw = candidatesNode?.translate_candidates ?? envelope.translate_candidates;
+  const replyListRaw =
+    candidatesNode?.reply_candidates ??
+    (candidatesNode as { replyCandidates?: unknown } | undefined)?.replyCandidates ??
+    envelope.reply_candidates ??
+    (envelope as { replyCandidates?: unknown }).replyCandidates;
+  const taskListRaw =
+    candidatesNode?.task_candidates ??
+    (candidatesNode as { taskCandidates?: unknown } | undefined)?.taskCandidates ??
+    envelope.task_candidates ??
+    (envelope as { taskCandidates?: unknown }).taskCandidates;
+  const translateListRaw =
+    candidatesNode?.translate_candidates ??
+    (candidatesNode as { translateCandidates?: unknown } | undefined)?.translateCandidates ??
+    (candidatesNode as { translations?: unknown } | undefined)?.translations ??
+    envelope.translate_candidates ??
+    (envelope as { translateCandidates?: unknown }).translateCandidates ??
+    (envelope as { translations?: unknown }).translations;
   const followUpListRaw =
     candidatesNode?.follow_up_candidates ??
     candidatesNode?.followup_candidates ??
+    (candidatesNode as { followUpCandidates?: unknown } | undefined)?.followUpCandidates ??
     envelope.follow_up_candidates ??
-    envelope.followup_candidates;
+    envelope.followup_candidates ??
+    (envelope as { followUpCandidates?: unknown }).followUpCandidates;
   const replyList = normalizeCandidatesFromArray(replyListRaw, "reply");
   const taskList = normalizeCandidatesFromArray(taskListRaw, "task");
-  const translateList = Array.isArray(translateListRaw)
-    ? translateListRaw
-        .map((item, index) => normalizeTranslateCandidate(item, index))
-        .filter((item): item is AssistCandidate => Boolean(item))
-    : [];
-  const followUpList = Array.isArray(followUpListRaw)
-    ? followUpListRaw
-        .map((item, index) => normalizeFollowUpCandidate(item, index))
-        .filter((item): item is AssistCandidate => Boolean(item))
-    : [];
-  const hasReplyList = Array.isArray(replyListRaw);
-  const hasTaskList = Array.isArray(taskListRaw);
-  const hasTranslateList = Array.isArray(translateListRaw);
-  const hasFollowUpList = Array.isArray(followUpListRaw);
+  const translateList = extractCandidateArray(translateListRaw)
+    .map((item, index) => normalizeTranslateCandidate(item, index))
+    .filter((item): item is AssistCandidate => Boolean(item));
+  const followUpList = extractCandidateArray(followUpListRaw)
+    .map((item, index) => normalizeFollowUpCandidate(item, index))
+    .filter((item): item is AssistCandidate => Boolean(item));
+  const hasReplyList = hasCandidateArray(replyListRaw);
+  const hasTaskList = hasCandidateArray(taskListRaw);
+  const hasTranslateList = hasCandidateArray(translateListRaw);
+  const hasFollowUpList = hasCandidateArray(followUpListRaw);
 
   if (hasReplyList || hasTaskList || hasTranslateList || hasFollowUpList) {
     return [...replyList, ...taskList, ...translateList, ...followUpList];
   }
 
-  const singleReply = normalizeReplyCandidate(envelope.reply_candidate, previous.length);
+  const singleReply = normalizeReplyCandidate(
+    envelope.reply_candidate ?? (envelope as { replyCandidate?: unknown }).replyCandidate,
+    previous.length
+  );
   if (singleReply) {
     return mergeAssistCandidates(previous, [singleReply]);
   }
 
-  const singleTask = normalizeTaskCandidate(envelope.task_candidate, previous.length);
+  const singleTask = normalizeTaskCandidate(
+    envelope.task_candidate ?? (envelope as { taskCandidate?: unknown }).taskCandidate,
+    previous.length
+  );
   if (singleTask) {
     return mergeAssistCandidates(previous, [singleTask]);
   }
 
-  const singleTranslate = normalizeTranslateCandidate(envelope.translate_candidate, previous.length);
+  const singleTranslate = normalizeTranslateCandidate(
+    envelope.translate_candidate ??
+      (envelope as { translateCandidate?: unknown }).translateCandidate ??
+      (envelope as { translation?: unknown }).translation,
+    previous.length
+  );
   if (singleTranslate) {
     return mergeAssistCandidates(previous, [singleTranslate]);
   }
 
   const singleFollowUp = normalizeFollowUpCandidate(
-    envelope.follow_up_candidate ?? envelope.followup_candidate,
+    envelope.follow_up_candidate ??
+      envelope.followup_candidate ??
+      (envelope as { followUpCandidate?: unknown }).followUpCandidate,
     previous.length
   );
   if (singleFollowUp) {
