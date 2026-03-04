@@ -48,6 +48,18 @@ type GroupCategoryOption = {
 };
 
 type PresenceRole = "human" | "bot" | "npc";
+type PresenceRemoveKind = "friend" | "agent";
+
+type PresenceItem = {
+  id: string;
+  entityId: string;
+  name: string;
+  avatar: string;
+  entityType: PresenceRole;
+  role: PresenceRole;
+  removeKind?: PresenceRemoveKind;
+  removeId?: string;
+};
 
 const GROUP_CATEGORY_OPTIONS: GroupCategoryOption[] = [
   { key: "toc_learning", groupType: "toc", zh: "学习群", en: "Learning" },
@@ -86,6 +98,8 @@ export default function HomeScreen() {
     addChatThread,
     createFriend,
     createGroup,
+    removeAgent,
+    removeFriend,
     refreshAll,
   } = useAgentTown();
   const tr = (zh: string, en: string) => tx(language, zh, en);
@@ -129,8 +143,9 @@ export default function HomeScreen() {
     return sorted;
   }, [chatThreads]);
 
-  const presence = useMemo(() => {
+  const presence = useMemo<PresenceItem[]>(() => {
     const displayName = (user?.displayName || "").trim();
+    const currentUserId = (user?.id || "").trim();
     const assistantNameEN = displayName ? `${displayName}'s Bot` : "";
     const assistantNameZH = displayName ? `${displayName}的助理` : "";
     const isMyBotId = (value?: string) => {
@@ -141,9 +156,19 @@ export default function HomeScreen() {
     const items = [
       ...friends
         .filter((f) => {
+          const ownerId = (f.ownerId || "").trim();
+          const friendUserId = (f.userId || "").trim();
+          const isSelfAssistantBot =
+            f.kind === "bot" &&
+            currentUserId !== "" &&
+            (friendUserId === currentUserId ||
+              (ownerId === currentUserId && (f.threadId || "").trim().toLowerCase() === "mybot"));
+          if (isSelfAssistantBot) return false;
           if (isMyBotId(f.userId) || isMyBotId(f.id)) return false;
           const normalizedName = (f.name || "").trim().toLowerCase();
           if (f.kind === "bot" && normalizedName === "mybot") return false;
+          if (assistantNameEN && normalizedName === assistantNameEN.toLowerCase()) return false;
+          if (assistantNameZH && normalizedName === assistantNameZH.toLowerCase()) return false;
           return true;
         })
         .map((f) => {
@@ -155,6 +180,8 @@ export default function HomeScreen() {
             avatar: f.avatar,
             entityType: role,
             role,
+            removeKind: "friend" as const,
+            removeId: f.id,
           };
         }),
       ...agents
@@ -175,10 +202,52 @@ export default function HomeScreen() {
           avatar: a.avatar,
           entityType: "npc" as const,
           role: "npc" as const,
+          removeKind: "agent" as const,
+          removeId: a.id,
         })),
     ];
     return items.slice(0, 9);
   }, [agents, friends, user?.displayName, user?.id]);
+
+  const handleRemovePresence = useCallback(
+    (item: PresenceItem) => {
+      const removeId = (item.removeId || "").trim();
+      const removeKind = item.removeKind;
+      if (!removeId || !removeKind) return;
+
+      const itemName = (item.name || "").trim();
+      const fallbackName = item.role === "npc" ? tr("这个 NPC", "this NPC") : tr("这个联系人", "this contact");
+      const target = itemName || fallbackName;
+
+      Alert.alert(
+        tr("删除", "Delete"),
+        item.role === "npc"
+          ? tr(`确认删除 ${target} 吗？`, `Delete ${target}?`)
+          : tr(`确认移除 ${target} 吗？`, `Remove ${target}?`),
+        [
+          { text: tr("取消", "Cancel"), style: "cancel" },
+          {
+            text: tr("删除", "Delete"),
+            style: "destructive",
+            onPress: () => {
+              void (async () => {
+                try {
+                  if (removeKind === "agent") {
+                    await removeAgent(removeId);
+                  } else {
+                    await removeFriend(removeId);
+                  }
+                } catch (err) {
+                  setUiError(formatApiError(err));
+                }
+              })();
+            },
+          },
+        ]
+      );
+    },
+    [removeAgent, removeFriend, tr]
+  );
 
   useEffect(() => {
     if (!friendModal) return;
@@ -664,6 +733,8 @@ export default function HomeScreen() {
                       key={item.id}
                       testID={`home-presence-item-${index}`}
                       style={styles.presenceItem}
+                      onLongPress={() => handleRemovePresence(item)}
+                      delayLongPress={280}
                       onPress={() =>
                         openEntityConfig({
                           entityType: item.entityType,

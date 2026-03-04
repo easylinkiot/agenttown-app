@@ -14,6 +14,7 @@ import {
   createTaskFromMessage as createTaskFromMessageApi,
   deleteChatThread as deleteChatThreadApi,
   deleteCustomSkill as deleteCustomSkillApi,
+  deleteAgent as deleteAgentApi,
   deleteFriend as deleteFriendApi,
   deleteMiniApp as deleteMiniAppApi,
   atCreateSession,
@@ -120,6 +121,7 @@ interface AgentTownContextValue {
   }) => Promise<Friend | null>;
   removeFriend: (friendId: string) => Promise<void>;
   createAgent: (input: CreateAgentInput) => Promise<Agent | null>;
+  removeAgent: (agentId: string) => Promise<void>;
   toggleAgentSkill: (agentId: string, skillId: string, install: boolean) => Promise<void>;
   toggleBotSkill: (skillId: string, install: boolean) => Promise<void>;
   createGroup: (input: {
@@ -1393,6 +1395,59 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
           return created;
         } catch {
           return null;
+        }
+      },
+      removeAgent: async (agentId) => {
+        const targetID = (agentId || "").trim();
+        if (!targetID) return;
+        const linkedThreadIDs = chatThreads
+          .filter((thread) => {
+            const threadID = (thread.id || "").trim();
+            const targetType = (thread.targetType || "").trim().toLowerCase();
+            const targetEntityID = (thread.targetId || "").trim();
+            if (threadID === targetID) return true;
+            return targetType === "agent" && targetEntityID === targetID;
+          })
+          .map((thread) => thread.id)
+          .filter(Boolean);
+
+        setAgents((prev) => prev.filter((item) => item.id !== targetID));
+        if (linkedThreadIDs.length > 0) {
+          const linkedSet = new Set(linkedThreadIDs);
+          setChatThreads((prev) => prev.filter((item) => !linkedSet.has(item.id)));
+          setMessagesByThread((prev) => {
+            const next = { ...prev };
+            for (const threadID of linkedSet) {
+              delete next[threadID];
+              delete historyCursorByThreadRef.current[threadID];
+            }
+            return next;
+          });
+          setThreadMembers((prev) => {
+            const next = { ...prev };
+            for (const threadID of linkedSet) {
+              delete next[threadID];
+            }
+            return next;
+          });
+          setFriends((prev) => prev.filter((item) => !linkedSet.has((item.threadId || "").trim())));
+          patchThreadLanguageMap((previous) => {
+            let changed = false;
+            const next = { ...previous };
+            for (const threadID of linkedSet) {
+              if (threadID in next) {
+                delete next[threadID];
+                changed = true;
+              }
+            }
+            return changed ? next : previous;
+          });
+        }
+
+        try {
+          await deleteAgentApi(targetID);
+        } catch {
+          // Keep optimistic state.
         }
       },
       toggleAgentSkill: async (agentId, skillId, install) => {
