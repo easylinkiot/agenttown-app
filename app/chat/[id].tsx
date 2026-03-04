@@ -46,6 +46,7 @@ import { tx } from "@/src/i18n/translate";
 import {
   agentChat as agentChatApi,
   aiText,
+  createTask as createTaskApi,
   discoverUsers as discoverUsersApi,
   formatApiError,
   listAgents as listAgentsApi,
@@ -67,6 +68,7 @@ import {
   ChatThread,
   ConversationMessage,
   Friend,
+  TaskItem,
   ThreadDisplayLanguage,
   ThreadMember,
 } from "@/src/types";
@@ -263,6 +265,30 @@ function extractSessionIdFromSSEPayload(payload: unknown) {
   return camel;
 }
 
+function assistCandidateSelectionKey(candidate: AssistCandidate, index: number) {
+  const id = (candidate.id || "").trim();
+  return `${id || "candidate"}_${index}`;
+}
+
+function normalizeTaskPriority(priority?: string): TaskItem["priority"] {
+  const raw = (priority || "").trim().toLowerCase();
+  if (!raw) return "Medium";
+  if (raw.includes("high") || raw.includes("urgent") || raw.includes("p0") || raw.includes("p1")) return "High";
+  if (raw.includes("low") || raw.includes("p3") || raw.includes("p4")) return "Low";
+  return "Medium";
+}
+
+function buildTaskTitleFromCandidate(candidate: AssistCandidate, index: number) {
+  const title = (candidate.title || "").trim();
+  if (title) return title;
+  const firstLine = (candidate.text || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (firstLine) return firstLine.slice(0, 120);
+  return `Task ${index + 1}`;
+}
+
 function isMyBotChatThreadId(threadId: string) {
   const id = (threadId || "").trim().toLowerCase();
   if (!id) return false;
@@ -362,6 +388,7 @@ export default function ChatDetailScreen() {
     botConfig,
     language,
     threadLanguageById,
+    refreshAll,
     refreshThreadMessages,
     loadOlderMessages,
     sendMessage,
@@ -1361,10 +1388,12 @@ export default function ChatDetailScreen() {
   const [askAI, setAskAI] = useState("");
   const [askAICandidates, setAskAICandidates] = useState<AssistCandidate[]>([]);
   const [askAISelectedIndex, setAskAISelectedIndex] = useState(0);
+  const [askAISelectedTaskKeys, setAskAISelectedTaskKeys] = useState<Set<string>>(new Set());
   const [askAIAction, setAskAIAction] = useState<ChatAssistAction>("auto_reply");
   const [askAIMoreMenuOpen, setAskAIMoreMenuOpen] = useState(false);
   const [askAIError, setAskAIError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isAddingTasks, setIsAddingTasks] = useState(false);
   const [translationRefreshToken, setTranslationRefreshToken] = useState(0);
   const [translatedByMessageId, setTranslatedByMessageId] = useState<
     Record<string, Partial<Record<ThreadDisplayLanguage, string>>>
@@ -1883,10 +1912,11 @@ export default function ChatDetailScreen() {
   }, [abortAskAIStream]);
 
   const closeActionModal = useCallback(() => {
+    if (isAddingTasks) return;
     abortAskAIStream();
     setAskAIMoreMenuOpen(false);
     setActionModal(false);
-  }, [abortAskAIStream]);
+  }, [abortAskAIStream, isAddingTasks]);
 
   const runAssistGeneration = useCallback(
     async (action: ChatAssistAction) => {
@@ -1920,7 +1950,9 @@ export default function ChatDetailScreen() {
       setAskAIError(null);
       setAskAICandidates([]);
       setAskAISelectedIndex(0);
+      setAskAISelectedTaskKeys(new Set());
       setIsStreaming(true);
+      setIsAddingTasks(false);
 
       const assistRequest: ChatAssistRequest = { ...requestPayload };
       const inlineInput = askAI.trim();
@@ -2022,10 +2054,12 @@ export default function ChatDetailScreen() {
     setAskAI("");
     setAskAICandidates([]);
     setAskAISelectedIndex(0);
+    setAskAISelectedTaskKeys(new Set());
     setAskAIError(null);
     setAskAIAction("auto_reply");
     setAskAIMoreMenuOpen(false);
     setIsStreaming(false);
+    setIsAddingTasks(false);
     setActionAnchor(null);
     setActionModal(true);
   };
@@ -2037,10 +2071,12 @@ export default function ChatDetailScreen() {
     setAskAI("");
     setAskAICandidates([]);
     setAskAISelectedIndex(0);
+    setAskAISelectedTaskKeys(new Set());
     setAskAIError(null);
     setAskAIAction("auto_reply");
     setAskAIMoreMenuOpen(false);
     setIsStreaming(false);
+    setIsAddingTasks(false);
     if (ev?.nativeEvent) {
       const h = bubbleHeightsRef.current[message.id] || 56;
       const top = ev.nativeEvent.pageY - ev.nativeEvent.locationY;
@@ -2058,9 +2094,9 @@ export default function ChatDetailScreen() {
   };
 
   const handleAskAISubmit = useCallback(() => {
-    if (isStreaming) return;
+    if (isStreaming || isAddingTasks) return;
     void runAssistGeneration(askAIAction);
-  }, [askAIAction, isStreaming, runAssistGeneration]);
+  }, [askAIAction, isAddingTasks, isStreaming, runAssistGeneration]);
 
   const runGroupMyBot = async () => {
     const question = myBotQuestion.trim();
@@ -2248,8 +2284,88 @@ export default function ChatDetailScreen() {
     };
   }, [chatId, messages, threadDisplayLanguage, translationRefreshToken]);
 
+  const isTaskCandidateMode = askAIAction === "add_task";
+  const selectedTaskCandidates = useMemo(
+    () =>
+      askAICandidates
+        .map((candidate, index) => ({
+          candidate,
+          index,
+          key: assistCandidateSelectionKey(candidate, index),
+        }))
+        .filter((item) => askAISelectedTaskKeys.has(item.key)),
+    [askAICandidates, askAISelectedTaskKeys]
+  );
+
+  const handleAddSelectedTaskCandidates = useCallback(async () => {
+    if (!isTaskCandidateMode || isStreaming || isAddingTasks) return;
+    if (selectedTaskCandidates.length === 0) return;
+
+    const assignee =
+      (user?.displayName || user?.email || tr("我", "Me")).trim() || tr("我", "Me");
+    const sourceMessageId = (actionMessage?.id || "").trim() || undefined;
+
+    setIsAddingTasks(true);
+    setAskAIError(null);
+    try {
+      const requests = selectedTaskCandidates.map(({ candidate, index }) => {
+        const payload: TaskItem = {
+          title: buildTaskTitleFromCandidate(candidate, index),
+          assignee,
+          priority: normalizeTaskPriority(candidate.priority),
+          status: "Pending",
+          owner: assignee,
+          sourceThreadId: chatId || undefined,
+          sourceMessageId,
+        };
+        return createTaskApi(payload);
+      });
+
+      const results = await Promise.allSettled(requests);
+      const failedKeys = results
+        .map((result, index) => (result.status === "rejected" ? selectedTaskCandidates[index]?.key : ""))
+        .filter(Boolean);
+      const failedCount = failedKeys.length;
+      const successCount = results.length - failedCount;
+
+      if (failedCount > 0) {
+        setAskAISelectedTaskKeys(new Set(failedKeys));
+        setAskAIError(
+          successCount > 0
+            ? tr(
+                `已添加 ${successCount} 项，${failedCount} 项失败，请重试。`,
+                `Added ${successCount} item(s), ${failedCount} failed. Please retry.`
+              )
+            : tr("添加失败，请重试。", "Failed to add tasks. Please retry.")
+        );
+        return;
+      }
+
+      setAskAISelectedTaskKeys(new Set());
+      setAskAIError(null);
+      await refreshAll().catch(() => {
+        // Keep chat flow smooth even if task refresh fails.
+      });
+      closeActionModal();
+    } finally {
+      setIsAddingTasks(false);
+    }
+  }, [
+    actionMessage?.id,
+    chatId,
+    closeActionModal,
+    isAddingTasks,
+    isStreaming,
+    isTaskCandidateMode,
+    refreshAll,
+    selectedTaskCandidates,
+    tr,
+    user?.displayName,
+    user?.email,
+  ]);
+
   const applySelectedCandidate = (candidateIndex?: number) => {
-    if (isStreaming) return;
+    if (isStreaming || isAddingTasks) return;
     if (askAICandidates.length === 0) return;
     const index = Math.max(
       0,
@@ -3107,7 +3223,7 @@ export default function ChatDetailScreen() {
                   placeholder={tr("Ask AI...", "Ask AI...")}
                   placeholderTextColor="rgba(148,163,184,0.9)"
                   style={styles.aiAskInput}
-                  editable={!isStreaming}
+                  editable={!isStreaming && !isAddingTasks}
                 />
               </View>
               <View style={styles.aiModeRow}>
@@ -3118,7 +3234,7 @@ export default function ChatDetailScreen() {
                     setAskAIMoreMenuOpen(false);
                     void runAssistGeneration("auto_reply");
                   }}
-                  disabled={isStreaming}
+                  disabled={isStreaming || isAddingTasks}
                 >
                   <Text style={styles.aiModeBtnText}>{tr("回复", "Reply")}</Text>
                 </Pressable>
@@ -3128,7 +3244,7 @@ export default function ChatDetailScreen() {
                     setAskAIAction("add_task");
                     setAskAIMoreMenuOpen(false);
                   }}
-                  disabled={isStreaming}
+                  disabled={isStreaming || isAddingTasks}
                 >
                   <Text style={styles.aiModeBtnText}>{tr("任务", "Task")}</Text>
                 </Pressable>
@@ -3139,7 +3255,7 @@ export default function ChatDetailScreen() {
                     (askAIActionIsOverflow || askAIMoreMenuOpen) && styles.aiModeBtnActive,
                   ]}
                   onPress={() => setAskAIMoreMenuOpen((prev) => !prev)}
-                  disabled={isStreaming}
+                  disabled={isStreaming || isAddingTasks}
                 >
                   <Ionicons name="ellipsis-horizontal" size={16} color="rgba(226,232,240,0.94)" />
                 </Pressable>
@@ -3152,7 +3268,7 @@ export default function ChatDetailScreen() {
                       setAskAIAction("ask_anything");
                       setAskAIMoreMenuOpen(false);
                     }}
-                    disabled={isStreaming}
+                    disabled={isStreaming || isAddingTasks}
                   >
                     <Text style={styles.aiModeMoreItemText}>{tr("问答", "Ask")}</Text>
                   </Pressable>
@@ -3166,7 +3282,7 @@ export default function ChatDetailScreen() {
                       setAskAIAction("translate");
                       setAskAIMoreMenuOpen(false);
                     }}
-                    disabled={isStreaming}
+                    disabled={isStreaming || isAddingTasks}
                   >
                     <Text style={styles.aiModeMoreItemText}>{tr("翻译", "Translate")}</Text>
                   </Pressable>
@@ -3180,7 +3296,7 @@ export default function ChatDetailScreen() {
                       setAskAIAction("follow_up");
                       setAskAIMoreMenuOpen(false);
                     }}
-                    disabled={isStreaming}
+                    disabled={isStreaming || isAddingTasks}
                   >
                     <Text style={styles.aiModeMoreItemText}>{tr("跟进", "Follow-up")}</Text>
                   </Pressable>
@@ -3202,39 +3318,95 @@ export default function ChatDetailScreen() {
               <ScrollView style={styles.aiCandidatesList} contentContainerStyle={styles.aiCandidatesListContent}>
                 {askAICandidates.length === 0 ? (
                   <Text style={styles.aiHint}>
-                    {tr(
-                      "按回车或点 Reply 生成候选，点击候选可填入消息输入框。",
-                      "Press Enter or tap Reply to generate candidates. Tap one to fill the message input."
-                    )}
+                    {isTaskCandidateMode
+                      ? tr(
+                          "按回车生成任务候选，勾选后点击“添加”创建任务。",
+                          "Press Enter to generate task candidates, select multiple items, then tap Add."
+                        )
+                      : tr(
+                          "按回车或点 Reply 生成候选，点击候选可填入消息输入框。",
+                          "Press Enter or tap Reply to generate candidates. Tap one to fill the message input."
+                        )}
                   </Text>
                 ) : (
-                  askAICandidates.map((candidate, index) => (
-                    <Pressable
-                      key={`${candidate.id || "candidate"}_${index}`}
-                      style={[
-                        styles.aiCandidateItem,
-                        askAISelectedIndex === index && styles.aiCandidateItemSelected,
-                      ]}
-                      onPress={() => {
-                        setAskAISelectedIndex(index);
-                        applySelectedCandidate(index);
-                      }}
-                      disabled={isStreaming}
-                    >
-                      {(candidate.kind === "task" || candidate.kind === "follow_up") && candidate.title ? (
-                        <Text style={styles.aiCandidateTitle}>{candidate.title}</Text>
-                      ) : null}
-                      <Text style={styles.aiCandidateText}>{candidate.text}</Text>
-                      {(candidate.kind === "task" || candidate.kind === "follow_up") && candidate.priority ? (
-                        <Text style={styles.aiCandidateMeta}>{candidate.priority}</Text>
-                      ) : null}
-                      {candidate.kind === "follow_up" && candidate.description ? (
-                        <Text style={styles.aiCandidateMeta}>{candidate.description}</Text>
-                      ) : null}
-                    </Pressable>
-                  ))
+                  askAICandidates.map((candidate, index) => {
+                    const selectionKey = assistCandidateSelectionKey(candidate, index);
+                    const isSelected = isTaskCandidateMode
+                      ? askAISelectedTaskKeys.has(selectionKey)
+                      : askAISelectedIndex === index;
+                    return (
+                      <Pressable
+                        key={selectionKey}
+                        style={[styles.aiCandidateItem, isSelected && styles.aiCandidateItemSelected]}
+                        onPress={() => {
+                          if (isTaskCandidateMode) {
+                            setAskAISelectedTaskKeys((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(selectionKey)) {
+                                next.delete(selectionKey);
+                              } else {
+                                next.add(selectionKey);
+                              }
+                              return next;
+                            });
+                            return;
+                          }
+                          setAskAISelectedIndex(index);
+                          applySelectedCandidate(index);
+                        }}
+                        disabled={isStreaming || isAddingTasks}
+                      >
+                        {isTaskCandidateMode ? (
+                          <View style={styles.aiCandidateSelectRow}>
+                            <Ionicons
+                              name={isSelected ? "checkbox" : "square-outline"}
+                              size={16}
+                              color={isSelected ? "rgba(147,197,253,0.98)" : "rgba(148,163,184,0.92)"}
+                            />
+                            <Text style={styles.aiCandidateSelectText}>
+                              {isSelected ? tr("已选择", "Selected") : tr("点击选择", "Tap to select")}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {(candidate.kind === "task" || candidate.kind === "follow_up") && candidate.title ? (
+                          <Text style={styles.aiCandidateTitle}>{candidate.title}</Text>
+                        ) : null}
+                        <Text style={styles.aiCandidateText}>{candidate.text}</Text>
+                        {(candidate.kind === "task" || candidate.kind === "follow_up") && candidate.priority ? (
+                          <Text style={styles.aiCandidateMeta}>{candidate.priority}</Text>
+                        ) : null}
+                        {candidate.kind === "follow_up" && candidate.description ? (
+                          <Text style={styles.aiCandidateMeta}>{candidate.description}</Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })
                 )}
               </ScrollView>
+
+              {isTaskCandidateMode && askAICandidates.length > 0 ? (
+                <Pressable
+                  style={[
+                    styles.aiTaskAddBtn,
+                    (selectedTaskCandidates.length === 0 || isStreaming || isAddingTasks) &&
+                      styles.aiTaskAddBtnDisabled,
+                  ]}
+                  disabled={selectedTaskCandidates.length === 0 || isStreaming || isAddingTasks}
+                  onPress={() => {
+                    void handleAddSelectedTaskCandidates();
+                  }}
+                >
+                  {isAddingTasks ? (
+                    <ActivityIndicator size="small" color="#0b1220" />
+                  ) : (
+                    <Text style={styles.aiTaskAddBtnText}>
+                      {selectedTaskCandidates.length > 0
+                        ? tr(`添加（${selectedTaskCandidates.length}）`, `Add (${selectedTaskCandidates.length})`)
+                        : tr("添加", "Add")}
+                    </Text>
+                  )}
+                </Pressable>
+              ) : null}
 
             </AnimatedPressable>
           </Pressable>
@@ -4415,6 +4587,32 @@ const styles = StyleSheet.create({
     color: "rgba(148,163,184,0.95)",
     fontSize: 11,
     fontWeight: "800",
+  },
+  aiCandidateSelectRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 2,
+  },
+  aiCandidateSelectText: {
+    color: "rgba(148,163,184,0.95)",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  aiTaskAddBtn: {
+    minHeight: 38,
+    borderRadius: 12,
+    backgroundColor: "rgba(147,197,253,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  aiTaskAddBtnDisabled: {
+    backgroundColor: "rgba(51,65,85,0.46)",
+  },
+  aiTaskAddBtnText: {
+    color: "#0b1220",
+    fontSize: 13,
+    fontWeight: "900",
   },
   aiHint: {
     color: "rgba(148,163,184,0.95)",
