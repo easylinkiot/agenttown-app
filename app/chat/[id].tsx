@@ -1362,7 +1362,6 @@ export default function ChatDetailScreen() {
   const [askAICandidates, setAskAICandidates] = useState<AssistCandidate[]>([]);
   const [askAISelectedIndex, setAskAISelectedIndex] = useState(0);
   const [askAIAction, setAskAIAction] = useState<ChatAssistAction>("auto_reply");
-  const [askAIActionArmed, setAskAIActionArmed] = useState(false);
   const [askAIMoreMenuOpen, setAskAIMoreMenuOpen] = useState(false);
   const [askAIError, setAskAIError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -1375,7 +1374,6 @@ export default function ChatDetailScreen() {
   const askAIAbortRef = useRef<AbortController | null>(null);
   const askAIRequestSeqRef = useRef(0);
   const askAIMountedRef = useRef(true);
-  const askAIAutoRunKeyRef = useRef("");
   const autoTranslateAbortRef = useRef<AbortController | null>(null);
   const autoTranslateRequestSeqRef = useRef(0);
   const autoTranslatePendingRef = useRef<Set<string>>(new Set());
@@ -1887,7 +1885,6 @@ export default function ChatDetailScreen() {
   const closeActionModal = useCallback(() => {
     abortAskAIStream();
     setAskAIMoreMenuOpen(false);
-    setAskAIActionArmed(false);
     setActionModal(false);
   }, [abortAskAIStream]);
 
@@ -2027,7 +2024,6 @@ export default function ChatDetailScreen() {
     setAskAISelectedIndex(0);
     setAskAIError(null);
     setAskAIAction("auto_reply");
-    setAskAIActionArmed(false);
     setAskAIMoreMenuOpen(false);
     setIsStreaming(false);
     setActionAnchor(null);
@@ -2043,7 +2039,6 @@ export default function ChatDetailScreen() {
     setAskAISelectedIndex(0);
     setAskAIError(null);
     setAskAIAction("auto_reply");
-    setAskAIActionArmed(false);
     setAskAIMoreMenuOpen(false);
     setIsStreaming(false);
     if (ev?.nativeEvent) {
@@ -2061,6 +2056,11 @@ export default function ChatDetailScreen() {
     }
     setActionModal(true);
   };
+
+  const handleAskAISubmit = useCallback(() => {
+    if (isStreaming) return;
+    void runAssistGeneration(askAIAction);
+  }, [askAIAction, isStreaming, runAssistGeneration]);
 
   const runGroupMyBot = async () => {
     const question = myBotQuestion.trim();
@@ -2247,31 +2247,6 @@ export default function ChatDetailScreen() {
       }
     };
   }, [chatId, messages, threadDisplayLanguage, translationRefreshToken]);
-
-  useEffect(() => {
-    if (!actionModal || !actionMessage) {
-      askAIAutoRunKeyRef.current = "";
-      return;
-    }
-    if (!askAIActionArmed) return;
-    const hint = askAI.trim();
-    const runKey = `${actionMessage.id}|${askAIAction}|${hint}`;
-    if (runKey === askAIAutoRunKeyRef.current) return;
-    if (askAIAction === "ask_anything" && !hint) {
-      askAIAutoRunKeyRef.current = runKey;
-      abortAskAIStream();
-      setAskAIError(null);
-      setAskAICandidates([]);
-      setAskAISelectedIndex(0);
-      setIsStreaming(false);
-      return;
-    }
-    const timer = setTimeout(() => {
-      askAIAutoRunKeyRef.current = runKey;
-      void runAssistGeneration(askAIAction);
-    }, 260);
-    return () => clearTimeout(timer);
-  }, [abortAskAIStream, actionMessage, actionModal, askAI, askAIAction, askAIActionArmed, runAssistGeneration]);
 
   const applySelectedCandidate = (candidateIndex?: number) => {
     if (isStreaming) return;
@@ -3126,6 +3101,9 @@ export default function ChatDetailScreen() {
                   onChangeText={setAskAI}
                   onFocus={() => setKeyboardTarget("askAI")}
                   onBlur={() => setKeyboardTarget(null)}
+                  onSubmitEditing={handleAskAISubmit}
+                  returnKeyType="send"
+                  blurOnSubmit={false}
                   placeholder={tr("Ask AI...", "Ask AI...")}
                   placeholderTextColor="rgba(148,163,184,0.9)"
                   style={styles.aiAskInput}
@@ -3136,9 +3114,9 @@ export default function ChatDetailScreen() {
                 <Pressable
                   style={[styles.aiModeBtn, askAIAction === "auto_reply" && styles.aiModeBtnActive]}
                   onPress={() => {
-                    setAskAIActionArmed(true);
                     setAskAIAction("auto_reply");
                     setAskAIMoreMenuOpen(false);
+                    void runAssistGeneration("auto_reply");
                   }}
                   disabled={isStreaming}
                 >
@@ -3147,7 +3125,6 @@ export default function ChatDetailScreen() {
                 <Pressable
                   style={[styles.aiModeBtn, askAIAction === "add_task" && styles.aiModeBtnActive]}
                   onPress={() => {
-                    setAskAIActionArmed(true);
                     setAskAIAction("add_task");
                     setAskAIMoreMenuOpen(false);
                   }}
@@ -3172,7 +3149,6 @@ export default function ChatDetailScreen() {
                   <Pressable
                     style={[styles.aiModeMoreItem, askAIAction === "ask_anything" && styles.aiModeMoreItemActive]}
                     onPress={() => {
-                      setAskAIActionArmed(true);
                       setAskAIAction("ask_anything");
                       setAskAIMoreMenuOpen(false);
                     }}
@@ -3187,7 +3163,6 @@ export default function ChatDetailScreen() {
                       askAIAction === "translate" && styles.aiModeMoreItemActive,
                     ]}
                     onPress={() => {
-                      setAskAIActionArmed(true);
                       setAskAIAction("translate");
                       setAskAIMoreMenuOpen(false);
                     }}
@@ -3202,7 +3177,6 @@ export default function ChatDetailScreen() {
                       askAIAction === "follow_up" && styles.aiModeMoreItemActive,
                     ]}
                     onPress={() => {
-                      setAskAIActionArmed(true);
                       setAskAIAction("follow_up");
                       setAskAIMoreMenuOpen(false);
                     }}
@@ -3228,7 +3202,10 @@ export default function ChatDetailScreen() {
               <ScrollView style={styles.aiCandidatesList} contentContainerStyle={styles.aiCandidatesListContent}>
                 {askAICandidates.length === 0 ? (
                   <Text style={styles.aiHint}>
-                    {tr("候选内容将自动生成，点击即可填入消息输入框。", "Candidates are generated automatically. Tap one to fill the message input.")}
+                    {tr(
+                      "按回车或点 Reply 生成候选，点击候选可填入消息输入框。",
+                      "Press Enter or tap Reply to generate candidates. Tap one to fill the message input."
+                    )}
                   </Text>
                 ) : (
                   askAICandidates.map((candidate, index) => (
