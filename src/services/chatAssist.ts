@@ -8,6 +8,12 @@ const DEFAULT_API_BASE_URL = "https://agenttown-api.kittens.cloud";
 const ASK_ANYTHING_STREAM_CANDIDATE_ID = "__assist_ask_anything_stream__";
 const ASSIST_DEBUG_PREFIX = "[chatAssist]";
 const AGENTTOWN_FALLBACK_PREFIX = "[agenttown-fallback]";
+const ASSIST_ACTION_TO_SKILL_ID: Record<Exclude<ChatAssistAction, "ask_anything">, string> = {
+  auto_reply: "professional-reply",
+  add_task: "action-needs",
+  translate: "translate",
+  follow_up: "generate-idea",
+};
 
 export type ChatAssistAction = "auto_reply" | "add_task" | "ask_anything" | "translate" | "follow_up";
 
@@ -580,124 +586,179 @@ export function reduceAssistCandidatesFromEvent(
   return previous;
 }
 
+function toCandidateId(value: unknown, fallback: string) {
+  const id = toText(value);
+  return id || fallback;
+}
+
+function normalizeV2AssistResponseCandidates(action: ChatAssistAction, payload: unknown) {
+  if (!payload || typeof payload !== "object") return [] as AssistCandidate[];
+  const row = payload as {
+    candidates?: unknown;
+    tasks?: unknown;
+    ideas?: unknown;
+    summaries?: unknown;
+  };
+  const rawCandidates = row.candidates;
+  const listFromCandidates = extractCandidateArray(rawCandidates);
+
+  if (action === "add_task") {
+    const taskSource = extractCandidateArray(row.tasks).length > 0 ? row.tasks : rawCandidates;
+    return extractCandidateArray(taskSource)
+      .map((item, index) => normalizeTaskCandidate(item, index))
+      .filter((item): item is AssistCandidate => Boolean(item));
+  }
+
+  if (action === "translate") {
+    return extractCandidateArray(rawCandidates)
+      .map((item, index) => normalizeTranslateCandidate(item, index))
+      .filter((item): item is AssistCandidate => Boolean(item));
+  }
+
+  if (action === "follow_up") {
+    const ideaList = extractCandidateArray(row.ideas);
+    if (ideaList.length > 0) {
+      const out: AssistCandidate[] = [];
+      for (let index = 0; index < ideaList.length; index += 1) {
+        const item = ideaList[index];
+        if (!item || typeof item !== "object") continue;
+        const idea = item as { id?: unknown; title?: unknown; description?: unknown };
+        const title = toText(idea.title);
+        const description = toText(idea.description);
+        const text = [title, description].filter(Boolean).join("\n");
+        if (!text) continue;
+        out.push({
+          id: toCandidateId(idea.id, `follow_up_${index}`),
+          kind: "follow_up",
+          text,
+          title: title || undefined,
+          description: description || undefined,
+        });
+      }
+      return out;
+    }
+    const summaries = extractCandidateArray(row.summaries);
+    if (summaries.length > 0) {
+      const out: AssistCandidate[] = [];
+      for (let index = 0; index < summaries.length; index += 1) {
+        const item = summaries[index];
+        if (!item || typeof item !== "object") continue;
+        const summary = item as { id?: unknown; title?: unknown; summary?: unknown };
+        const title = toText(summary.title);
+        const content = toText(summary.summary);
+        const text = [title, content].filter(Boolean).join("\n");
+        if (!text) continue;
+        out.push({
+          id: toCandidateId(summary.id, `follow_up_${index}`),
+          kind: "follow_up",
+          text,
+          title: title || undefined,
+        });
+      }
+      return out;
+    }
+    return extractCandidateArray(rawCandidates)
+      .map((item, index) => normalizeFollowUpCandidate(item, index))
+      .filter((item): item is AssistCandidate => Boolean(item));
+  }
+
+  if (listFromCandidates.length > 0) {
+    return listFromCandidates
+      .map((item, index) => normalizeReplyCandidate(item, index))
+      .filter((item): item is AssistCandidate => Boolean(item));
+  }
+  return [];
+}
+
+function buildV2AssistMessages(request: ChatAssistRequest) {
+  const primary = toText(request.question) || toText(request.input);
+  const selected = toText(request.selected_message_content);
+  const combined = [selected, primary].filter(Boolean).join("\n\n");
+  if (!combined) return [] as Array<{ role: "user"; content: string }>;
+  return [{ role: "user" as const, content: combined }];
+}
+
 export async function runChatAssist(
   request: ChatAssistRequest,
   handlers: RunChatAssistHandlers = {},
   abortSignal?: AbortSignal
 ) {
   if (abortSignal?.aborted) return;
-
-  const url = `${getApiBaseUrl()}/v1/chat/assist`;
-  const token = getAuthToken();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "text/event-stream",
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+  if (request.action === "ask_anything") {
+    let fullText = "";
+    await runChatCompletions(
+      {
+        prompt: request.question || request.input || "",
+        session_id: request.session_id,
+      },
+      {
+        onEvent: handlers.onEvent,
+        onError: handlers.onError,
+        onText: (text) => {
+          fullText = text;
+          handlers.onCandidates?.([
+            {
+              id: ASK_ANYTHING_STREAM_CANDIDATE_ID,
+              kind: "text",
+              text: sanitizeAskAnythingText(text),
+            },
+          ]);
+        },
+        onDone: handlers.onDone,
+      },
+      abortSignal
+    );
+    if (!fullText.trim()) {
+      handlers.onCandidates?.([]);
+    }
+    return;
   }
 
-  const payload = {
-    ...request,
-    stream: true,
-  };
-
-  let candidates: AssistCandidate[] = [];
-
-  await new Promise<void>((resolve, reject) => {
-    let finished = false;
-
-    const finish = (error?: Error) => {
-      if (finished) return;
-      finished = true;
-      abortSignal?.removeEventListener("abort", handleAbort);
-      client.stop();
-      if (error) {
-        reject(error);
-      } else {
-        resolve();
-      }
-    };
-
-    const handleAbort = () => {
-      finish();
-    };
-
-    const handleEvent = (eventName: string, event: EventSourceEvent<string, string>) => {
-      const data = parseEventData(event.data);
-      handlers.onEvent?.(eventName, data);
-
-      if (eventName === "done") {
-        debugLog("done:aggregated-candidates", {
-          action: request.action,
-          count: candidates.length,
-          candidates,
-        });
-        handlers.onDone?.();
-        finish();
-        return;
-      }
-      if (eventName === "error" || eventName === "response.error") {
-        const err = toEventError(data);
-        handlers.onError?.(err);
-        finish(err);
-        return;
-      }
-
-      const nextCandidates = reduceAssistCandidatesFromEvent(eventName, data, candidates);
-      if (nextCandidates !== candidates) {
-        candidates = nextCandidates;
-        handlers.onCandidates?.(candidates);
-      }
-    };
-
-    const client = new SSEClient<ChatAssistSSEEventName>({
-      url,
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      reconnect: {
-        enabled: false,
-        initialDelayMs: 0,
-        maxDelayMs: 0,
-        multiplier: 1,
-        jitterRatio: 0,
-        maxAttempts: 0,
-      },
-      pauseWhenBackground: false,
-      customEvents: CHAT_ASSIST_CUSTOM_EVENTS,
-      onMessage: (event) => {
-        handleEvent("message", event as EventSourceEvent<string, string>);
-      },
-      onCustomEvent: (eventName, event) => {
-        handleEvent(eventName, event as EventSourceEvent<string, string>);
-      },
-      onError: (error) => {
-        if (abortSignal?.aborted) {
-          finish();
-          return;
-        }
-        const err = new Error(error.message || "Assist stream disconnected");
-        handlers.onError?.(err);
-        finish(err);
-      },
-      onClose: () => {
-        if (finished) return;
-        if (abortSignal?.aborted) {
-          finish();
-          return;
-        }
-        handlers.onDone?.();
-        finish();
-      },
-    });
-
-    if (abortSignal) {
-      abortSignal.addEventListener("abort", handleAbort, { once: true });
-    }
-
-    client.start();
+  const skillID = ASSIST_ACTION_TO_SKILL_ID[request.action];
+  const token = getAuthToken();
+  const url = `${getApiBaseUrl()}/v2/chat/assist`;
+  const response = await fetch(url, {
+    method: "POST",
+    signal: abortSignal,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      skill_id: skillID,
+      thread_id: request.session_id || undefined,
+      messages: buildV2AssistMessages(request),
+      target_language: request.target_language || undefined,
+      user_hint: request.input || request.question || undefined,
+    }),
   });
+  const text = await response.text();
+  let body: unknown = {};
+  if (text.trim()) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      body = { message: text };
+    }
+  }
+  if (!response.ok) {
+    const row = body as { message?: unknown; error?: { message?: unknown } };
+    const message = toText(row?.error?.message) || toText(row?.message) || "Assist request failed";
+    const error = new Error(message);
+    handlers.onError?.(error);
+    throw error;
+  }
+
+  const payload = (body as { candidates?: unknown })?.candidates;
+  const candidates = normalizeV2AssistResponseCandidates(request.action, payload);
+  handlers.onEvent?.("assist_candidates", body);
+  handlers.onCandidates?.(candidates);
+  debugLog("done:aggregated-candidates", {
+    action: request.action,
+    count: candidates.length,
+    candidates,
+  });
+  handlers.onDone?.();
 }
 
 export async function runChatCompletions(

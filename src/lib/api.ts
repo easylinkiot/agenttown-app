@@ -298,6 +298,26 @@ export interface ExecuteCustomSkillOutput {
   message?: ConversationMessage;
 }
 
+type V2SkillCatalogItem = {
+  id?: unknown;
+  name?: unknown;
+  description?: unknown;
+  category?: unknown;
+  icon?: unknown;
+};
+
+type V2UserSkill = {
+  id?: unknown;
+  name?: unknown;
+  description?: unknown;
+  skill_content?: unknown;
+  content?: unknown;
+  enabled?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+  version?: unknown;
+};
+
 export interface RoleRepliesInput {
   prompt: string;
   memberIds?: string[];
@@ -372,6 +392,27 @@ function coerceString(value: unknown) {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed || undefined;
+}
+
+function coerceNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeDateTime(value: unknown) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    const asDate = Date.parse(trimmed);
+    return Number.isFinite(asDate) ? new Date(asDate).toISOString() : trimmed;
+  }
+  const unix = coerceNumber(value);
+  if (typeof unix !== "number") return "";
+  const millis = unix > 1_000_000_000_000 ? unix : unix * 1000;
+  const asDate = new Date(millis);
+  return Number.isFinite(asDate.getTime()) ? asDate.toISOString() : "";
 }
 
 function parseRetryAfterSeconds(headerValue: string | null) {
@@ -1026,39 +1067,104 @@ export async function toggleAgentSkill(agentId: string, skillId: string, install
 }
 
 export async function listSkillCatalog() {
-  return apiFetch<SkillCatalogItem[]>("/v1/skills/catalog");
+  const payload = await apiFetch<{ list?: V2SkillCatalogItem[] } | V2SkillCatalogItem[]>("/v2/skills/catalog");
+  const rows = Array.isArray(payload)
+    ? payload
+    : payload && Array.isArray(payload.list)
+      ? payload.list
+      : [];
+  return rows.map((item, index) => ({
+    id: coerceString(item?.id) || `v2_skill_${index}`,
+    name: coerceString(item?.name) || "Unnamed Skill",
+    logo: coerceString(item?.icon) || "",
+    description: coerceString(item?.description) || "",
+    type: "builtin",
+    permissionScope: "chat:read",
+    version: "v2",
+    tags: [coerceString(item?.category) || "system"],
+  }));
 }
 
 export async function listCustomSkills() {
-  return apiFetch<CustomSkill[]>("/v1/skills/custom");
+  const payload = await apiFetch<{ list?: V2UserSkill[] } | V2UserSkill[]>("/v2/skills");
+  const rows = Array.isArray(payload)
+    ? payload
+    : payload && Array.isArray(payload.list)
+      ? payload.list
+      : [];
+  return rows.map((item, index) => ({
+    id: coerceString(item?.id) || `v2_custom_${index}`,
+    name: coerceString(item?.name) || "Unnamed Skill",
+    description: coerceString(item?.description) || "",
+    markdown: coerceString(item?.skill_content) || coerceString(item?.content) || "",
+    permissionScope: "chat:read",
+    executor: "openai",
+    version: String(coerceNumber(item?.version) || 1),
+    enabled: typeof item?.enabled === "boolean" ? item.enabled : true,
+    createdAt: normalizeDateTime(item?.created_at),
+    updatedAt: normalizeDateTime(item?.updated_at),
+  }));
 }
 
 export async function createCustomSkill(payload: CreateCustomSkillInput) {
-  return apiFetch<CustomSkill>("/v1/skills/custom", {
+  const created = await apiFetch<V2UserSkill>("/v2/skills", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      name: payload.name,
+      description: payload.description || "",
+      skill_content: payload.markdown,
+    }),
   });
+  return {
+    id: coerceString(created?.id) || "",
+    name: coerceString(created?.name) || payload.name,
+    description: coerceString(created?.description) || payload.description || "",
+    markdown: coerceString(created?.skill_content) || payload.markdown,
+    permissionScope: payload.permissionScope || "chat:read",
+    executor: payload.executor || "openai",
+    version: String(coerceNumber(created?.version) || 1),
+    enabled: typeof created?.enabled === "boolean" ? created.enabled : payload.enabled ?? true,
+    createdAt: normalizeDateTime(created?.created_at),
+    updatedAt: normalizeDateTime(created?.updated_at),
+  };
 }
 
 export async function patchCustomSkill(
   skillId: string,
   payload: Partial<CreateCustomSkillInput> & { enabled?: boolean }
 ) {
-  return apiFetch<CustomSkill>(`/v1/skills/custom/${encodeURIComponent(skillId)}`, {
+  const updated = await apiFetch<V2UserSkill>(`/v2/skills/${encodeURIComponent(skillId)}`, {
     method: "PATCH",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      name: payload.name,
+      description: payload.description,
+      skill_content: payload.markdown,
+    }),
   });
+  return {
+    id: coerceString(updated?.id) || skillId,
+    name: coerceString(updated?.name) || payload.name || "",
+    description: coerceString(updated?.description) || payload.description || "",
+    markdown: coerceString(updated?.skill_content) || payload.markdown || "",
+    permissionScope: payload.permissionScope || "chat:read",
+    executor: payload.executor || "openai",
+    version: String(coerceNumber(updated?.version) || 1),
+    enabled: typeof updated?.enabled === "boolean" ? updated.enabled : payload.enabled ?? true,
+    createdAt: normalizeDateTime(updated?.created_at),
+    updatedAt: normalizeDateTime(updated?.updated_at),
+  };
 }
 
 export async function deleteCustomSkill(skillId: string) {
-  return apiFetch<{ ok: boolean; id: string }>(`/v1/skills/custom/${encodeURIComponent(skillId)}`, {
+  await apiFetch<{ ok?: boolean }>(`/v2/skills/${encodeURIComponent(skillId)}`, {
     method: "DELETE",
   });
+  return { ok: true, id: skillId };
 }
 
 export async function executeCustomSkill(skillId: string, payload: ExecuteCustomSkillInput) {
   return apiFetch<ExecuteCustomSkillOutput>(
-    `/v1/skills/custom/${encodeURIComponent(skillId)}/execute`,
+    `/v1/skills/${encodeURIComponent(skillId)}/execute`,
     {
       method: "POST",
       body: JSON.stringify(payload),

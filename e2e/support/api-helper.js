@@ -212,6 +212,45 @@ async function listThreadMessages(token, threadId, limit = 100) {
   });
 }
 
+async function listAssistSkillsV2(token) {
+  return apiRequest("/v2/chat/assist/skills", { token });
+}
+
+async function runAssistV2(token, payload) {
+  return apiRequest("/v2/chat/assist", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+async function listSkillsV2(token) {
+  return apiRequest("/v2/skills", { token });
+}
+
+async function createSkillV2(token, payload) {
+  return apiRequest("/v2/skills", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+async function patchSkillV2(token, skillId, payload) {
+  return apiRequest(`/v2/skills/${encodeURIComponent(skillId)}`, {
+    method: "PATCH",
+    token,
+    body: payload,
+  });
+}
+
+async function deleteSkillV2(token, skillId) {
+  return apiRequest(`/v2/skills/${encodeURIComponent(skillId)}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 module.exports = {
   ensureAccount,
   ensureFriendship,
@@ -219,4 +258,10 @@ module.exports = {
   addThreadMember,
   sendThreadMessage,
   listThreadMessages,
+  listAssistSkillsV2,
+  runAssistV2,
+  listSkillsV2,
+  createSkillV2,
+  patchSkillV2,
+  deleteSkillV2,
 };

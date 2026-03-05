@@ -1,10 +1,28 @@
 import {
   mergeAssistCandidates,
+  runChatAssist,
   reduceAssistCandidatesFromEvent,
   type AssistCandidate,
 } from "../chatAssist";
+import { setAuthToken } from "@/src/lib/api";
 
 describe("chatAssist helpers", () => {
+  const originalBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    process.env.EXPO_PUBLIC_API_BASE_URL = "https://api.example.com";
+    fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    setAuthToken("access-token");
+  });
+
+  afterEach(() => {
+    setAuthToken(null);
+    fetchMock.mockReset();
+    process.env.EXPO_PUBLIC_API_BASE_URL = originalBaseUrl;
+  });
+
   it("replaces candidates when payload contains full assist_candidates arrays", () => {
     const prev: AssistCandidate[] = [
       { id: "old", kind: "reply", text: "Old one" },
@@ -192,5 +210,79 @@ describe("chatAssist helpers", () => {
     expect(next).toHaveLength(2);
     expect(next[0]).toMatchObject({ id: "r1", text: "B" });
     expect(next[1]).toMatchObject({ kind: "text", text: "C" });
+  });
+
+  it("runs v2 assist for auto_reply and parses candidates", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          skill_id: "professional-reply",
+          candidates: {
+            candidates: [
+              { id: "r1", text: "Reply One" },
+            ],
+          },
+        }),
+    } as Response);
+
+    const onCandidates = jest.fn();
+    await runChatAssist(
+      {
+        action: "auto_reply",
+        input: "please rewrite",
+        selected_message_content: "raw content",
+      },
+      { onCandidates }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.example.com/v2/chat/assist");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer access-token");
+    const body = JSON.parse((init.body as string) || "{}");
+    expect(body.skill_id).toBe("professional-reply");
+    expect(body.messages[0].content).toContain("raw content");
+    expect(onCandidates).toHaveBeenCalledWith([
+      { id: "r1", kind: "reply", text: "Reply One" },
+    ]);
+  });
+
+  it("runs v2 assist for add_task and parses task candidates", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          skill_id: "action-needs",
+          candidates: {
+            tasks: [
+              { id: "t1", title: "Send report", description: "Before Friday", priority: "high" },
+            ],
+          },
+        }),
+    } as Response);
+
+    const onCandidates = jest.fn();
+    await runChatAssist(
+      {
+        action: "add_task",
+        input: "extract tasks",
+      },
+      { onCandidates }
+    );
+
+    expect(onCandidates).toHaveBeenCalledWith([
+      {
+        id: "t1",
+        kind: "task",
+        text: "Send report\nBefore Friday",
+        title: "Send report",
+        description: "Before Friday",
+        priority: "high",
+      },
+    ]);
   });
 });
