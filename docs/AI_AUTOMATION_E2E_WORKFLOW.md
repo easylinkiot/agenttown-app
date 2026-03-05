@@ -26,6 +26,8 @@ export BACKEND_DIR="$WORKSPACE_ROOT/agenttown-api"
 
 ## 3. 标准执行链路（每次需求都走）
 
+命令用途与测试目标速查：[E2E_COMMANDS_QUICK_GUIDE.md](./E2E_COMMANDS_QUICK_GUIDE.md)
+
 1. 需求澄清
 - 输入：业务目标、验收标准、影响模块。
 - 输出：实现清单（前端/后端/测试）。

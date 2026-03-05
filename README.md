@@ -225,6 +225,21 @@ npm run test:ci
 npm run build:web
 ```
 
+## E2E Quick Commands
+
+Team quick guide (command explanation + testing goals):
+
+- `docs/E2E_COMMANDS_QUICK_GUIDE.md`
+
+Recommended path:
+
+```bash
+npm run e2e:env:check:ios
+npm run e2e:test:smoke
+npm run e2e:test:core
+npm run e2e:test:release
+```
+
 ## AI-Driven Workflow
 
 1. Create an issue for each feature/fix.

@@ -2066,7 +2066,7 @@ PODS:
     - React-RCTFBReactNativeSpec
     - ReactCommon/turbomodule/core
     - SocketRocket
-  - react-native-keyboard-controller (1.20.7):
+  - react-native-keyboard-controller (1.18.5):
     - boost
     - DoubleConversion
     - fast_float
@@ -2084,7 +2084,7 @@ PODS:
     - React-graphics
     - React-ImageManager
     - React-jsi
-    - react-native-keyboard-controller/common (= 1.20.7)
+    - react-native-keyboard-controller/common (= 1.18.5)
     - React-NativeModulesApple
     - React-RCTFabric
     - React-renderercss
@@ -2095,7 +2095,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - react-native-keyboard-controller/common (1.20.7):
+  - react-native-keyboard-controller/common (1.18.5):
     - boost
     - DoubleConversion
     - fast_float
@@ -3416,7 +3416,7 @@ SPEC CHECKSUMS:
   fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd
   glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
   hermes-engine: 9f4dfe93326146a1c99eb535b1cb0b857a3cd172
-  RCT-Folly: 846fda9475e61ec7bcbf8a3fe81edfcaeb090669
+  RCT-Folly: 59ec0ac1f2f39672a0c6e6cecdd39383b764646f
   RCTDeprecation: 5eb1d2eeff5fb91151e8a8eef45b6c7658b6c897
   RCTRequired: cebcf9442fc296c9b89ac791dfd463021d9f6f23
   RCTTypeSafety: b99aa872829ee18f6e777e0ef55852521c5a6788
@@ -3449,7 +3449,7 @@ SPEC CHECKSUMS:
   React-logger: a913317214a26565cd4c045347edf1bcacb80a3f
   React-Mapbuffer: 94f4264de2cb156960cd82b338a403f4653f2fd9
   React-microtasksnativemodule: 6c4ee39a36958c39c97b074d28f360246a335e84
-  react-native-keyboard-controller: dbf568b5d029cdc5b26667a7c2323b160c25dc00
+  react-native-keyboard-controller: 8bd5f5572b6d5d402a2f77987a17492f869e5d62
   react-native-safe-area-context: c00143b4823773bba23f2f19f85663ae89ceb460
   React-NativeModulesApple: ebf2ce72b35870036900d6498b33724386540a71
   React-oscompat: eb0626e8ba1a2c61673c991bf9dc21834898475d

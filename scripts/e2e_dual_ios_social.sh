@@ -6,6 +6,7 @@ SIM_A_NAME="${SIM_A_NAME:-iPhone 17}"
 SIM_B_NAME="${SIM_B_NAME:-iPhone 17 Pro}"
 RUN_TAG="${E2E_RUN_TAG:-$(date +%s)}"
 PORT_BASE="${DETOX_PORT_BASE:-8099}"
+TEST_PATH_PATTERN="${TEST_PATH_PATTERN:-e2e/social-dual-device-chat.e2e.js}"
 
 pick_port() {
   local p="$1"
@@ -18,7 +19,7 @@ pick_port() {
 echo "[0/4] Clean stale Detox/Jest processes..."
 pkill -f "detox test -c ios.sim.release.a" >/dev/null 2>&1 || true
 pkill -f "detox test -c ios.sim.release.b" >/dev/null 2>&1 || true
-pkill -f "jest --config e2e/jest.config.js --testPathPattern=e2e/social-dual-device-chat.e2e.js" >/dev/null 2>&1 || true
+pkill -f "jest --config e2e/jest.config.js --testPathPattern=${TEST_PATH_PATTERN}" >/dev/null 2>&1 || true
 sleep 1
 
 PORT_A="$(pick_port "$PORT_BASE")"
@@ -42,7 +43,7 @@ echo "[3/4] Run dual-device chat test in parallel..."
   DETOX_SERVER="ws://127.0.0.1:${PORT_A}" \
   E2E_ACTOR=A \
   E2E_RUN_TAG="$RUN_TAG" \
-  npx detox test -c ios.sim.release.a --cleanup -- --testPathPattern=e2e/social-dual-device-chat.e2e.js
+  npx detox test -c ios.sim.release.a --cleanup -- --testPathPattern="$TEST_PATH_PATTERN"
 ) &
 PID_A=$!
 
@@ -50,7 +51,7 @@ PID_A=$!
   DETOX_SERVER="ws://127.0.0.1:${PORT_B}" \
   E2E_ACTOR=B \
   E2E_RUN_TAG="$RUN_TAG" \
-  npx detox test -c ios.sim.release.b --cleanup -- --testPathPattern=e2e/social-dual-device-chat.e2e.js
+  npx detox test -c ios.sim.release.b --cleanup -- --testPathPattern="$TEST_PATH_PATTERN"
 ) &
 PID_B=$!
 
