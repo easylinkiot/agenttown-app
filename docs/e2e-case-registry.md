@@ -5,6 +5,7 @@
 | Case ID | Domain | Priority | Layer | Platform | File | Precondition | Requirement/Bug Link | Last Run | Last Result | Owner | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | AUTH-001 | auth | P0 | smoke | ios | e2e/smoke/chat.mybot.send-message.e2e.js | iOS simulator available | req-guest-login | 2026-02-27 | FAIL | TBD | Detox app connection timeout |
+| SKILL-001 | skills | P1 | core | ios | e2e/skills-v2-api.e2e.js | iOS simulator + backend `/v2` available | req-skills-v2-migration | 2026-03-05 | PASS | AI/Codex | Covers `/v2/chat/assist/skills`, `/v2/chat/assist`, `/v2/skills` CRUD |
 
 ## 字段说明
 

@@ -1,3 +1,4 @@
+/* global describe, beforeAll, afterAll, it */
 const {
   ensureAccount,
   listAssistSkillsV2,

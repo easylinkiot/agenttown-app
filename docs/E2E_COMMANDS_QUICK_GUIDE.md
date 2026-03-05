@@ -26,6 +26,7 @@ npm run e2e:env:check:ios
 | `npm run e2e:test:social:ios:dual` | 双设备（A/B）并行执行社交对聊 | 双端协同正确性（发送/接收/会话一致） | 社交实时链路回归 | 8-20 分钟 |
 | `npm run e2e:test:social:ios:stability` | 双设备稳定性用例 | 重点场景重复执行稳定性 | Flaky 排查/发版前稳态验证 | 10-30 分钟 |
 | `npm run e2e:test:social:ios:full` | `dual + stability + social` 串行全跑 | 社交域完整闭环验收 | 社交模块发布前 | 20-50 分钟 |
+| `npm run e2e:test:skills:v2:ios` | 执行 skills v2 API E2E | 验证 skills v2 关键链路（assist + custom skill CRUD） | skills/chat-assist 改造后回归 | 5-15 分钟 |
 
 ## 3. 命令说明（兼容别名）
 
@@ -49,7 +50,8 @@ npm run e2e:env:check:ios
 1. 日常开发自测：`e2e:env:check:ios` -> `e2e:test:smoke`
 2. 合并前回归：`e2e:test:core`
 3. 社交改动回归：`e2e:test:social:ios:full`
-4. 发布前验收：`e2e:test:release`（必要时补 `social:full`）
+4. skills/chat-assist 改动回归：`e2e:test:skills:v2:ios`
+5. 发布前验收：`e2e:test:release`（必要时补 `social:full` 与 `skills:v2`）
 
 ## 6. 失败排查速记
 

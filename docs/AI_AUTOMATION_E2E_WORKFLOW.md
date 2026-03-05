@@ -68,6 +68,8 @@ npm run e2e:test:smoke
 # 需要更高覆盖时：
 npm run e2e:test:core
 npm run e2e:test:release
+# skills/chat-assist v2 改动后补充：
+npm run e2e:test:skills:v2:ios
 ```
 
 7. 输出结果
@@ -137,7 +139,8 @@ e2e/
 
 1. 工作时段：每 2-4 小时 `smoke`
 2. 每日收工前：`core`
-3. 上线前：`release`
+3. skills/chat-assist 改动当日：`skills:v2`
+4. 上线前：`release`（必要时补 `skills:v2`）
 
 ## 8. 上线门禁（iOS）
 

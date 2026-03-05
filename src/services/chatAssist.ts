@@ -674,7 +674,7 @@ function buildV2AssistMessages(request: ChatAssistRequest) {
   const primary = toText(request.question) || toText(request.input);
   const selected = toText(request.selected_message_content);
   const combined = [selected, primary].filter(Boolean).join("\n\n");
-  if (!combined) return [] as Array<{ role: "user"; content: string }>;
+  if (!combined) return [] as { role: "user"; content: string }[];
   return [{ role: "user" as const, content: combined }];
 }
 
