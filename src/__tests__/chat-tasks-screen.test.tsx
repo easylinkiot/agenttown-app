@@ -81,6 +81,7 @@ const mockedGetAuthToken = getAuthToken as jest.Mock;
 
 const mockBack = jest.fn();
 const mockedFetch = jest.fn();
+let fetchSpy: jest.SpyInstance | null = null;
 
 function makeResponse(payload: unknown, status = 200) {
   return Promise.resolve({
@@ -109,7 +110,21 @@ describe("ChatTasksScreen", () => {
     mockedUseAgentTown.mockReturnValue({ language: "en" });
     mockedGetAuthToken.mockReturnValue("token_test");
     mockedFetch.mockReset();
-    (global as any).fetch = mockedFetch;
+    if (typeof global.fetch === "function") {
+      fetchSpy = jest.spyOn(global, "fetch").mockImplementation(mockedFetch as typeof fetch);
+      return;
+    }
+    Object.defineProperty(global, "fetch", {
+      value: mockedFetch,
+      writable: true,
+      configurable: true,
+    });
+    fetchSpy = null;
+  });
+
+  afterEach(() => {
+    fetchSpy?.mockRestore();
+    fetchSpy = null;
   });
 
   it("loads first page with expected pagination params", async () => {
