@@ -86,6 +86,7 @@ import { isE2ETestMode } from "@/src/utils/e2e";
 
 type MemberFilter = "all" | "human" | "agent" | "role";
 type GroupReplyMode = "all" | "mention";
+type TranslationMode = "off" | ThreadDisplayLanguage;
 type MemberCandidate = {
   key: string;
   type: "human" | "agent";
@@ -151,7 +152,8 @@ const PLUS_PANEL_ITEMS: PlusPanelItem[] = [
   { key: "voice", icon: "mic-outline", zh: "语音", en: "Voice" },
   { key: "contact", icon: "person-circle-outline", zh: "个人名片", en: "Contact Card" },
 ];
-const THREAD_LANGUAGE_OPTIONS: { key: ThreadDisplayLanguage; label: string }[] = [
+const THREAD_LANGUAGE_OPTIONS: { key: TranslationMode; label: string }[] = [
+  { key: "off", label: "Off" },
   { key: "zh", label: "中" },
   { key: "en", label: "En" },
   { key: "de", label: "De" },
@@ -441,6 +443,8 @@ export default function ChatDetailScreen() {
 
   const tr = (zh: string, en: string) => tx(language, zh, en);
   const threadDisplayLanguage: ThreadDisplayLanguage = threadLanguageById[chatId] || language || "en";
+  const [translationMode, setTranslationMode] = useState<TranslationMode>("off");
+  const translationEnabled = translationMode !== "off";
   const [agentSessions, setAgentSessions] = useState<V2ChatSession[]>([]);
 
   const openEntityConfig = useCallback(
@@ -488,6 +492,10 @@ export default function ChatDetailScreen() {
     }
     void refreshAgentSessionsCache();
   }, [aiAgentMode, refreshAgentSessionsCache]);
+
+  useEffect(() => {
+    setTranslationMode("off");
+  }, [chatId]);
 
   const activeAgentSession = useMemo(
     () => (aiAgentMode ? agentSessions.find((session) => session.id === chatId) : undefined),
@@ -2065,6 +2073,12 @@ export default function ChatDetailScreen() {
           return;
         }
       }
+      if (action === "translate" && !translationEnabled) {
+        setAskAIError(
+          tr("翻译已关闭，请先在顶部选择目标语言。", "Translation is off. Choose a language from the top first.")
+        );
+        return;
+      }
 
       abortAskAIStream();
       const controller = new AbortController();
@@ -2170,6 +2184,7 @@ export default function ChatDetailScreen() {
       thread.targetId,
       thread.targetType,
       threadDisplayLanguage,
+      translationEnabled,
       tr,
     ]
   );
@@ -2310,6 +2325,7 @@ export default function ChatDetailScreen() {
 
   useEffect(() => {
     if (!chatId) return;
+    if (!translationEnabled) return;
     if (messages.length === 0) return;
 
     const targetLanguage = threadDisplayLanguage;
@@ -2404,7 +2420,7 @@ export default function ChatDetailScreen() {
         autoTranslateAbortRef.current = null;
       }
     };
-  }, [chatId, messages, threadDisplayLanguage, translationRefreshToken]);
+  }, [chatId, messages, threadDisplayLanguage, translationEnabled, translationRefreshToken]);
 
   const isTaskCandidateMode = askAIAction === "add_task";
   const selectedTaskCandidates = useMemo(
@@ -2646,8 +2662,10 @@ export default function ChatDetailScreen() {
       const highlighted = highlightMessageId !== "" && raw.id === highlightMessageId;
       const streamText = streamingById[raw.id];
       const sourceText = normalizeDisplayedContent((streamText ?? raw.content) || "", raw.senderName);
-      const translatedRawText = (translatedByMessageId[raw.id]?.[threadDisplayLanguage] || "").trim();
-      const translatedText = isPlaceholderTranslationText(translatedRawText, sourceText, threadDisplayLanguage)
+      const translatedRawText = translationEnabled
+        ? (translatedByMessageId[raw.id]?.[threadDisplayLanguage] || "").trim()
+        : "";
+      const translatedText = !translationEnabled || isPlaceholderTranslationText(translatedRawText, sourceText, threadDisplayLanguage)
         ? ""
         : translatedRawText;
       const hasTranslatedText = !streamText && translatedText !== "";
@@ -2823,6 +2841,7 @@ export default function ChatDetailScreen() {
       openEntityConfig,
       streamingById,
       threadDisplayLanguage,
+      translationEnabled,
       translatedByMessageId,
       showOriginalByMessageId,
       thread.avatar,
@@ -3100,12 +3119,17 @@ export default function ChatDetailScreen() {
 
           <View style={styles.threadLanguageRow}>
             {THREAD_LANGUAGE_OPTIONS.map((item) => {
-              const active = threadDisplayLanguage === item.key;
+              const active = item.key === "off" ? !translationEnabled : translationEnabled && threadDisplayLanguage === item.key;
               return (
                 <Pressable
                   key={item.key}
                   style={[styles.threadLanguageChip, active && styles.threadLanguageChipActive]}
                   onPress={() => {
+                    if (item.key === "off") {
+                      setTranslationMode("off");
+                      return;
+                    }
+                    setTranslationMode(item.key);
                     setTranslationRefreshToken((prev) => prev + 1);
                     void updateThreadLanguage(chatId, item.key);
                   }}
