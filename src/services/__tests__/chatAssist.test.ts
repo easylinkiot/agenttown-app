@@ -245,9 +245,88 @@ describe("chatAssist helpers", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer access-token");
     const body = JSON.parse((init.body as string) || "{}");
     expect(body.skill_id).toBe("professional-reply");
-    expect(body.messages[0].content).toContain("raw content");
+    expect(body.messages).toEqual([{ role: "user", content: "please rewrite" }]);
     expect(onCandidates).toHaveBeenCalledWith([
       { id: "r1", kind: "reply", text: "Reply One" },
+    ]);
+  });
+
+  it("uses selected item content when assist input is empty", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          skill_id: "professional-reply",
+          candidates: {
+            candidates: [{ id: "r1", text: "Reply One" }],
+          },
+        }),
+    } as Response);
+
+    await runChatAssist({
+      action: "auto_reply",
+      selected_message_content: "selected item content",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse((init.body as string) || "{}");
+    expect(body.messages).toEqual([{ role: "user", content: "selected item content" }]);
+  });
+
+  it("uses assist input instead of selected item content when input exists", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          skill_id: "professional-reply",
+          candidates: {
+            candidates: [{ id: "r1", text: "Reply One" }],
+          },
+        }),
+    } as Response);
+
+    await runChatAssist({
+      action: "auto_reply",
+      input: "typed request",
+      selected_message_content: "selected item content",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse((init.body as string) || "{}");
+    expect(body.messages).toEqual([{ role: "user", content: "typed request" }]);
+    expect(body.messages[0].content).not.toContain("selected item content");
+  });
+
+  it("prefers explicit context messages when provided", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          skill_id: "action-needs",
+          candidates: {
+            tasks: [{ id: "t1", title: "Send report", description: "Before Friday", priority: "high" }],
+          },
+        }),
+    } as Response);
+
+    await runChatAssist({
+      action: "add_task",
+      input: "ignore me",
+      selected_message_content: "ignore selected item",
+      messages: [
+        { role: "user", content: "message 1" },
+        { role: "assistant", content: "message 2" },
+      ],
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse((init.body as string) || "{}");
+    expect(body.messages).toEqual([
+      { role: "user", content: "message 1" },
+      { role: "assistant", content: "message 2" },
     ]);
   });
 

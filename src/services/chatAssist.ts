@@ -38,6 +38,7 @@ export function getDefaultAssistSkillId(action: AssistSkillAction) {
 export interface ChatAssistRequest {
   action: ChatAssistAction;
   skill_id?: string;
+  messages?: { role: "user" | "assistant"; content: string }[];
   input?: string;
   question?: string;
   target_type?: string;
@@ -777,11 +778,19 @@ function normalizeV2AssistResponseCandidates(action: ChatAssistAction, payload: 
 }
 
 function buildV2AssistMessages(request: ChatAssistRequest) {
+  if (Array.isArray(request.messages) && request.messages.length > 0) {
+    return request.messages
+      .map((item) => ({
+        role: item.role,
+        content: toText(item.content),
+      }))
+      .filter((item): item is { role: "user" | "assistant"; content: string } => Boolean(item.content));
+  }
   const primary = toText(request.question) || toText(request.input);
   const selected = toText(request.selected_message_content);
-  const combined = [selected, primary].filter(Boolean).join("\n\n");
-  if (!combined) return [] as { role: "user"; content: string }[];
-  return [{ role: "user" as const, content: combined }];
+  const content = primary || selected;
+  if (!content) return [] as { role: "user"; content: string }[];
+  return [{ role: "user" as const, content }];
 }
 
 export async function listChatAssistSkills(abortSignal?: AbortSignal) {

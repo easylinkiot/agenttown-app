@@ -129,12 +129,32 @@ type AskAISkillOption = {
   skillId: string;
   name?: string;
 };
+type PrimaryAskAIAction = "auto_reply" | "add_task";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const DEFAULT_ASK_AI_SKILL_OPTIONS: AskAISkillOption[] = DEFAULT_ASSIST_SKILL_ACTIONS.map((action) => ({
   action,
   skillId: getDefaultAssistSkillId(action),
 }));
+const PRIMARY_ASK_AI_ACTIONS: readonly PrimaryAskAIAction[] = ["auto_reply", "add_task"];
+const DEFAULT_ASK_AI_SKILL_OPTION_BY_ACTION: Record<Exclude<ChatAssistAction, "ask_anything">, AskAISkillOption> = {
+  auto_reply: {
+    action: "auto_reply",
+    skillId: getDefaultAssistSkillId("auto_reply"),
+  },
+  add_task: {
+    action: "add_task",
+    skillId: getDefaultAssistSkillId("add_task"),
+  },
+  translate: {
+    action: "translate",
+    skillId: getDefaultAssistSkillId("translate"),
+  },
+  follow_up: {
+    action: "follow_up",
+    skillId: getDefaultAssistSkillId("follow_up"),
+  },
+};
 
 const MESSAGE_FALLBACK_GAP = 1000;
 const DEV_STREAM_CHUNK_SIZE = 1;
@@ -262,6 +282,25 @@ function mentionMemberIDs(text: string, members: ThreadMember[]) {
     }
   }
   return ids;
+}
+
+function buildRecentAssistContextMessages(messages: ConversationMessage[], limit = 100) {
+  const recent = messages
+    .filter((message) => {
+      const content = (message.content || "").trim();
+      if (!content) return false;
+      const senderType = (message.senderType || "").trim().toLowerCase();
+      return senderType !== "system";
+    })
+    .slice(-limit);
+  return recent.map((message) => {
+    const senderType = (message.senderType || "").trim().toLowerCase();
+    const role: "user" | "assistant" = senderType === "agent" ? "assistant" : "user";
+    return {
+      role,
+      content: (message.content || "").trim(),
+    };
+  });
 }
 
 function toGiftedMessage(
@@ -2260,13 +2299,18 @@ export default function ChatDetailScreen() {
     }
     return next;
   }, [askAISkillOptions]);
-  const defaultAssistAction = askAISkillOptions[0]?.action || "auto_reply";
-  const askAIPrimarySkillOptions = askAISkillOptions.slice(0, 2);
-  const askAIOverflowSkillOptions = askAISkillOptions.slice(2);
+  const defaultAssistAction: PrimaryAskAIAction = "auto_reply";
+  const askAIPrimarySkillOptions = PRIMARY_ASK_AI_ACTIONS.map(
+    (action) => askAISkillOptionByAction[action] || DEFAULT_ASK_AI_SKILL_OPTION_BY_ACTION[action]
+  );
+  const askAIOverflowSkillOptions = askAISkillOptions.filter(
+    (item) => item.action !== "auto_reply" && item.action !== "add_task"
+  );
 
   useEffect(() => {
     if (askAIAction === "ask_anything") return;
     if (askAISkillOptionByAction[askAIAction]) return;
+    if (askAIAction === "auto_reply" || askAIAction === "add_task") return;
     setAskAIAction(defaultAssistAction);
   }, [askAIAction, askAISkillOptionByAction, defaultAssistAction]);
 
@@ -2274,24 +2318,33 @@ export default function ChatDetailScreen() {
     async (action: ChatAssistAction) => {
       if (!actionMessage || isStreaming) return;
       const selectedMessageContent = (actionMessage.content || "").trim();
-      if (!selectedMessageContent && action !== "ask_anything") {
-        setAskAIError(tr("消息内容为空，无法生成。", "Message is empty and cannot be used."));
-        return;
-      }
 
       const requestPayload = {
         action,
         selected_message_id: actionMessage.id,
         selected_message_content: selectedMessageContent,
       } as const;
-      const selectedSkill = action === "ask_anything" ? null : askAISkillOptionByAction[action];
+      const selectedSkill =
+        action === "ask_anything" ? null : askAISkillOptionByAction[action] || DEFAULT_ASK_AI_SKILL_OPTION_BY_ACTION[action];
       if (action !== "ask_anything" && !selectedSkill?.skillId) {
         setAskAIError(tr("AI 技能加载中，请稍后重试。", "Assist skills are still loading. Please try again."));
         return;
       }
 
+      const usesContextMessages = action !== "auto_reply" && action !== "ask_anything";
+      const inlineInput = action === "auto_reply" ? askAI.trim() : "";
+      const effectiveInput = inlineInput || selectedMessageContent;
+      const contextMessages = usesContextMessages ? buildRecentAssistContextMessages(messages) : [];
+      if (action === "auto_reply" && !effectiveInput) {
+        setAskAIError(tr("消息内容为空，无法生成。", "Message is empty and cannot be used."));
+        return;
+      }
+      if (usesContextMessages && contextMessages.length === 0) {
+        setAskAIError(tr("当前聊天暂无可用上下文。", "There is no usable chat context yet."));
+        return;
+      }
       if (action === "ask_anything") {
-        const question = askAI.trim();
+        const question = effectiveInput;
         if (!question) {
           setAskAIError(tr("请输入问题。", "Please enter a question."));
           return;
@@ -2321,10 +2374,10 @@ export default function ChatDetailScreen() {
       if (selectedSkill?.skillId) {
         assistRequest.skill_id = selectedSkill.skillId;
       }
-      const inlineInput = askAI.trim();
-      if (action === "ask_anything") {
-        assistRequest.input = inlineInput;
-      } else if ((action === "translate" || action === "follow_up") && inlineInput) {
+      if (contextMessages.length > 0) {
+        assistRequest.messages = contextMessages;
+      }
+      if (inlineInput) {
         assistRequest.input = inlineInput;
       }
       if (action === "translate") {
@@ -2335,7 +2388,7 @@ export default function ChatDetailScreen() {
         if (action === "ask_anything") {
           const completionsRequest: ChatCompletionsRequest = {
             stream: true,
-            input: askAI.trim(),
+            input: effectiveInput,
             session_id: chatId,
           };
           const targetType = (thread.targetType || "").trim();
@@ -2409,6 +2462,7 @@ export default function ChatDetailScreen() {
       askAISkillOptionByAction,
       chatId,
       isStreaming,
+      messages,
       thread.targetId,
       thread.targetType,
       threadDisplayLanguage,
@@ -3100,7 +3154,7 @@ export default function ChatDetailScreen() {
     { paddingBottom: keyboardPadding },
   ];
   const chatBodyStyle = [styles.chatBody, isWideDesktopWeb && !aiAgentMode ? styles.chatBodyWide : null];
-  const askAIPrimaryActionSet = new Set(askAIPrimarySkillOptions.map((item) => item.action));
+  const askAIPrimaryActionSet = new Set<string>(PRIMARY_ASK_AI_ACTIONS);
   const askAIActionIsOverflow =
     askAIAction === "ask_anything" || !askAIPrimaryActionSet.has(askAIAction as Exclude<ChatAssistAction, "ask_anything">);
   const canAbortMyBotSend = myBotStreaming && (isMyBotChatThreadId(chatId) || aiAgentMode);
@@ -3685,13 +3739,13 @@ export default function ChatDetailScreen() {
                     onPress={() => {
                       setAskAIAction(option.action);
                       setAskAIMoreMenuOpen(false);
-                      if (option.action === "auto_reply") {
-                        void runAssistGeneration("auto_reply");
+                      if (option.action === "auto_reply" || option.action === "add_task") {
+                        void runAssistGeneration(option.action);
                       }
                     }}
                     disabled={isStreaming || isAddingTasks}
                   >
-                    <Text style={styles.aiModeBtnText}>{option.name || askAISkillFallbackLabel(option.action, tr)}</Text>
+                    <Text style={styles.aiModeBtnText}>{askAISkillFallbackLabel(option.action, tr)}</Text>
                   </Pressable>
                 ))}
                 <Pressable
@@ -3708,44 +3762,45 @@ export default function ChatDetailScreen() {
               </View>
               {askAIMoreMenuOpen ? (
                 <View style={styles.aiModeMoreMenu}>
-                  <Pressable
-                    style={[styles.aiModeMoreItem, askAIAction === "ask_anything" && styles.aiModeMoreItemActive]}
-                    onPress={() => {
-                      setAskAIAction("ask_anything");
-                      setAskAIMoreMenuOpen(false);
-                    }}
-                    disabled={isStreaming || isAddingTasks}
+                  <ScrollView
+                    style={styles.aiModeMoreScroll}
+                    contentContainerStyle={styles.aiModeMoreScrollContent}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={askAIOverflowSkillOptions.length > 4}
                   >
-                    <Text style={styles.aiModeMoreItemText}>{tr("问答", "Ask")}</Text>
-                  </Pressable>
-                  {askAIOverflowSkillOptions.map((option) => (
+                    {askAIOverflowSkillOptions.map((option) => (
+                      <Pressable
+                        key={option.action}
+                        style={[
+                          styles.aiModeMoreItem,
+                          styles.aiModeMoreItemDivider,
+                          askAIAction === option.action && styles.aiModeMoreItemActive,
+                        ]}
+                        onPress={() => {
+                          setAskAIAction(option.action);
+                          setAskAIMoreMenuOpen(false);
+                          void runAssistGeneration(option.action);
+                        }}
+                        disabled={isStreaming || isAddingTasks}
+                      >
+                        <Text style={styles.aiModeMoreItemText}>
+                          {option.name || askAISkillFallbackLabel(option.action, tr)}
+                        </Text>
+                      </Pressable>
+                    ))}
                     <Pressable
-                      key={option.action}
                       style={[
                         styles.aiModeMoreItem,
                         styles.aiModeMoreItemDivider,
-                        askAIAction === option.action && styles.aiModeMoreItemActive,
                       ]}
                       onPress={() => {
-                        setAskAIAction(option.action);
                         setAskAIMoreMenuOpen(false);
+                        closeActionModal();
                       }}
-                      disabled={isStreaming || isAddingTasks}
                     >
-                      <Text style={styles.aiModeMoreItemText}>
-                        {option.name || askAISkillFallbackLabel(option.action, tr)}
-                      </Text>
+                      <Text style={styles.aiModeMoreItemText}>{tr("取消", "Cancel")}</Text>
                     </Pressable>
-                  ))}
-                  <Pressable
-                    style={[styles.aiModeMoreItem, styles.aiModeMoreItemDivider]}
-                    onPress={() => {
-                      setAskAIMoreMenuOpen(false);
-                      closeActionModal();
-                    }}
-                  >
-                    <Text style={styles.aiModeMoreItemText}>{tr("取消", "Cancel")}</Text>
-                  </Pressable>
+                  </ScrollView>
                 </View>
               ) : null}
 
@@ -4978,6 +5033,12 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(2,6,23,0.72)",
     overflow: "hidden",
+  },
+  aiModeMoreScroll: {
+    maxHeight: 220,
+  },
+  aiModeMoreScrollContent: {
+    paddingBottom: 2,
   },
   aiModeMoreItem: {
     minHeight: 36,
