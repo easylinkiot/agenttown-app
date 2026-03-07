@@ -454,6 +454,13 @@ function isBotLikeName(value?: string) {
   return /\bbot\b/i.test(name) || name.includes("助理");
 }
 
+function toTestIdSegment(value?: string) {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "unknown";
+}
+
 function inferAvatarTagFromSender(message: ConversationMessage): "Human" | "NPC" | "Bot" {
   const senderType = (message.senderType || "").trim().toLowerCase();
   const senderID = (message.senderId || "").trim().toLowerCase();
@@ -3376,6 +3383,7 @@ export default function ChatDetailScreen() {
                 ) : null}
                 {thread.isGroup ? (
                 <Pressable
+                  testID="chat-add-member-button"
                   style={styles.headerIcon}
                   onPress={() => {
                     setMemberQuery("");
@@ -4088,10 +4096,10 @@ export default function ChatDetailScreen() {
 
         <Modal visible={memberModal} transparent animationType="fade" onRequestClose={() => setMemberModal(false)}>
           <Pressable style={styles.modalOverlay} onPress={() => setMemberModal(false)}>
-            <Pressable style={styles.memberCard} onPress={() => null}>
+            <Pressable testID="chat-member-modal" style={styles.memberCard} onPress={() => null}>
               <View style={styles.memberHeader}>
                 <Text style={styles.memberTitle}>{tr("添加成员", "Add Member")}</Text>
-                <Pressable style={styles.closeTiny} onPress={() => setMemberModal(false)}>
+                <Pressable testID="chat-member-close-button" style={styles.closeTiny} onPress={() => setMemberModal(false)}>
                   <Ionicons name="close" size={16} color="rgba(226,232,240,0.85)" />
                 </Pressable>
               </View>
@@ -4099,6 +4107,7 @@ export default function ChatDetailScreen() {
               <View style={styles.searchWrap}>
                 <Ionicons name="search" size={14} color="rgba(148,163,184,0.9)" />
                 <TextInput
+                  testID="chat-member-search-input"
                   value={memberQuery}
                   onChangeText={setMemberQuery}
                   placeholder={tr("搜索成员", "Search members")}
@@ -4119,6 +4128,7 @@ export default function ChatDetailScreen() {
                 ] as const).map((item) => (
                   <Pressable
                     key={item.key}
+                    testID={`chat-member-filter-${item.key}`}
                     style={[styles.filterBtn, memberFilter === item.key && styles.filterBtnActive]}
                     onPress={() => setMemberFilter(item.key)}
                   >
@@ -4148,6 +4158,7 @@ export default function ChatDetailScreen() {
                     {section.items.map((c) => (
                       <Pressable
                         key={c.key}
+                        testID={`chat-member-candidate-${toTestIdSegment(c.key)}`}
                         style={[
                           styles.memberItem,
                           selectedMemberKeys.has(c.key) && styles.memberItemSelected,
@@ -4235,7 +4246,7 @@ export default function ChatDetailScreen() {
                     const canOperate = canOperateThreadMember(m);
                     const isSelf = isSelfThreadMember(m);
                     return (
-                      <View key={m.id} style={styles.currentChip}>
+                      <View key={m.id} testID={`chat-member-current-${toTestIdSegment(m.id || m.name)}`} style={styles.currentChip}>
                         <Text style={styles.currentChipText}>{m.name}</Text>
                         {canOperate ? (
                           <Pressable onPress={() => confirmRemoveThreadMember(m)}>
@@ -4253,6 +4264,7 @@ export default function ChatDetailScreen() {
 
                 <View style={styles.memberFooter}>
                   <Pressable
+                    testID="chat-member-cancel-button"
                     style={styles.memberFooterGhost}
                     onPress={() => setMemberModal(false)}
                     disabled={memberApplyBusy}
@@ -4260,6 +4272,7 @@ export default function ChatDetailScreen() {
                     <Text style={styles.memberFooterGhostText}>{tr("取消", "Cancel")}</Text>
                   </Pressable>
                   <Pressable
+                    testID="chat-member-confirm-button"
                     style={[
                       styles.memberFooterCta,
                       (pendingMemberAdds.length === 0 || memberApplyBusy) && styles.memberFooterCtaDisabled,

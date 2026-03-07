@@ -86,7 +86,7 @@ async function resetPassword(email, resetToken, password) {
 async function ensureAccount(email, password, displayName) {
   try {
     return await login(email, password);
-  } catch (loginErr) {
+  } catch (_loginErr) {
     try {
       return await register(email, password, displayName);
     } catch (registerErr) {
@@ -189,6 +189,12 @@ async function addThreadMember(token, threadId, payload) {
   });
 }
 
+async function listThreadMembers(token, threadId) {
+  return apiRequest(`/v1/chat/threads/${encodeURIComponent(threadId)}/members`, {
+    token,
+  });
+}
+
 async function sendThreadMessage(token, threadId, content, ext = {}) {
   return apiRequest(`/v1/chat/threads/${encodeURIComponent(threadId)}/messages`, {
     method: "POST",
@@ -228,6 +234,25 @@ async function listSkillsV2(token) {
   return apiRequest("/v2/skills", { token });
 }
 
+async function listNPCs(token) {
+  return apiRequest("/v2/npc", { token });
+}
+
+async function createNPC(token, payload) {
+  return apiRequest("/v2/npc", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+async function deleteNPC(token, npcId) {
+  return apiRequest(`/v2/npc/${encodeURIComponent(npcId)}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 async function createSkillV2(token, payload) {
   return apiRequest("/v2/skills", {
     method: "POST",
@@ -256,8 +281,12 @@ module.exports = {
   ensureFriendship,
   createThread,
   addThreadMember,
+  listThreadMembers,
   sendThreadMessage,
   listThreadMessages,
+  listNPCs,
+  createNPC,
+  deleteNPC,
   listAssistSkillsV2,
   runAssistV2,
   listSkillsV2,
