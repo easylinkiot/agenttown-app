@@ -100,7 +100,7 @@ export default function NPCCreateScreen() {
           >
             <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
               <View style={styles.formCard}>
-              <Text style={styles.formLabel}>{tr("Name", "Name")}</Text>
+              <Text style={styles.formLabel}>{tr("Name *", "Name *")}</Text>
               <TextInput
                 value={name}
                 onChangeText={setName}
@@ -112,7 +112,7 @@ export default function NPCCreateScreen() {
               <Text style={styles.formLabel}>{tr("Model Name", "Model Name")}</Text>
               <TextInput value={DEFAULT_MODEL_NAME} editable={false} style={[styles.input, styles.inputReadonly]} />
 
-              <Text style={styles.formLabel}>{tr("System Prompt", "System Prompt")}</Text>
+              <Text style={styles.formLabel}>{tr("System Prompt *", "System Prompt *")}</Text>
               <TextInput
                 value={systemPrompt}
                 onChangeText={setSystemPrompt}

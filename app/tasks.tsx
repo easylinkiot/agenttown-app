@@ -221,7 +221,7 @@ export default function TasksScreen() {
               <TextInput
                 value={title}
                 onChangeText={setTitle}
-                placeholder={tr("任务标题", "Task title")}
+                placeholder={tr("任务标题 *", "Task title *")}
                 placeholderTextColor="rgba(148,163,184,0.9)"
                 style={styles.input}
               autoComplete="off"

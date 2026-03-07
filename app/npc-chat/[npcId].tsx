@@ -468,11 +468,13 @@ export default function NPCChatScreen() {
                 placeholder={tr("输入消息...", "Type a message...")}
                 renderChatEmpty={() => (
                   <View style={styles.emptyWrap}>
+                    <View style={styles.emptyWrapFixed}>
                     <EmptyState
                       title={tr("还没有对话内容", "No messages yet")}
                       hint={tr("发一条消息开始和 NPC 对话", "Send a message to start chatting")}
                       icon="chatbubble-ellipses-outline"
                     />
+                    </View>
                   </View>
                 )}
                 renderInputToolbar={renderChatInputToolbar}
@@ -564,6 +566,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 16,
+  },
+  emptyWrapFixed: {
+    transform: [{ scaleY: -1 }],
+    width: "100%",
   },
   toolbarContainer: {
     borderTopWidth: 0,

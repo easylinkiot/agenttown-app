@@ -414,7 +414,7 @@ export default function AgentsScreen() {
                 ) : null}
 
                 <View style={styles.inlineBox}>
-                  <Text style={styles.fieldLabel}>{tr("名称", "NAME")}</Text>
+                  <Text style={styles.fieldLabel}>{tr("名称 *", "NAME *")}</Text>
                   <View style={styles.inputRow}>
                     <TextInput
                       value={name}

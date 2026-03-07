@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
+import * as QRCode from "qrcode";
 import {
   ActivityIndicator,
   Alert,
@@ -18,12 +20,13 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { SvgXml } from "react-native-svg";
 
 import { AVATAR_PRESETS } from "@/src/constants/avatars";
 import { MARKET_DATA } from "@/src/constants/marketplace";
 import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
 import { tx } from "@/src/i18n/translate";
-import { buildFriendQrDeepLink, createFriendQR } from "@/src/lib/api";
+import { buildFriendQrDeepLink, createFriendQR, uploadFileV2 } from "@/src/lib/api";
 import { generateGeminiJson } from "@/src/lib/gemini";
 import { useAgentTown } from "@/src/state/agenttown-context";
 import { useAuth } from "@/src/state/auth-context";
@@ -128,10 +131,30 @@ const MARKET_ITEM_I18N: Record<
   },
 };
 
-function buildFriendQrImageUri(token: string) {
-  const shareLink = buildFriendQrDeepLink(token);
+async function buildFriendQrSvg(shareLink: string) {
   if (!shareLink) return "";
-  return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(shareLink)}`;
+  return QRCode.toString(shareLink, {
+    type: "svg",
+    margin: 1,
+    width: 280,
+    color: {
+      dark: "#0f172a",
+      light: "#ffffff",
+    },
+  });
+}
+
+function inferImageMimeType(fileName?: string | null, fallbackMimeType?: string | null) {
+  const safeFallback = (fallbackMimeType || "").trim();
+  if (safeFallback) return safeFallback;
+
+  const lowerName = (fileName || "").trim().toLowerCase();
+  if (lowerName.endsWith(".png")) return "image/png";
+  if (lowerName.endsWith(".webp")) return "image/webp";
+  if (lowerName.endsWith(".gif")) return "image/gif";
+  if (lowerName.endsWith(".heic")) return "image/heic";
+  if (lowerName.endsWith(".heif")) return "image/heif";
+  return "image/jpeg";
 }
 
 export default function ConfigScreen() {
@@ -169,11 +192,13 @@ export default function ConfigScreen() {
   const [profileEmail, setProfileEmail] = useState(user?.email || "");
   const [profileAvatarInput, setProfileAvatarInput] = useState(user?.avatar || "");
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingProfileAvatar, setUploadingProfileAvatar] = useState(false);
   const [myQrToken, setMyQrToken] = useState("");
   const [myQrExpiresAt, setMyQrExpiresAt] = useState("");
   const [generatingMyQr, setGeneratingMyQr] = useState(false);
+  const [friendQrSvg, setFriendQrSvg] = useState("");
 
-  const profileAvatar = user?.avatar || botConfig.avatar;
+  const profileAvatar = profileAvatarInput.trim() || user?.avatar || botConfig.avatar || AVATAR_PRESETS[0];
   const profileProvider = user?.provider || "unknown";
   const profilePhone = user?.phone || tr("未绑定手机号", "No phone linked");
 
@@ -283,6 +308,53 @@ export default function ConfigScreen() {
     setProfileAvatarInput(next);
   };
 
+  const handlePickProfileAvatar = async () => {
+    if (uploadingProfileAvatar || savingProfile) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          tr("需要相册权限", "Media library permission required"),
+          tr("请允许访问相册后再选择头像。", "Allow photo-library access before choosing an avatar.")
+        );
+        return;
+      }
+
+      const picker = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+        selectionLimit: 1,
+      });
+      if (picker.canceled || picker.assets.length === 0) return;
+
+      const asset = picker.assets[0];
+      setUploadingProfileAvatar(true);
+      const uploaded = await uploadFileV2({
+        uri: asset.uri,
+        name: asset.fileName || `profile-avatar-${Date.now()}.jpg`,
+        mimeType: inferImageMimeType(asset.fileName, asset.mimeType),
+      });
+      const nextUrl = (uploaded.url || "").trim();
+      if (!nextUrl) {
+        throw new Error(tr("头像上传成功，但未返回可用地址。", "Avatar uploaded but no usable URL was returned."));
+      }
+      setProfileAvatarInput(nextUrl);
+      Alert.alert(
+        tr("头像已上传", "Avatar uploaded"),
+        tr("点击“保存资料”后将更新你的个人头像。", "Tap Save Profile to apply the new avatar.")
+      );
+    } catch (err) {
+      Alert.alert(
+        tr("头像上传失败", "Avatar upload failed"),
+        err instanceof Error ? err.message : tr("请稍后重试", "Please try again")
+      );
+    } finally {
+      setUploadingProfileAvatar(false);
+    }
+  };
+
   const save = () => {
     const next: BotConfig = {
       name,
@@ -349,8 +421,31 @@ export default function ConfigScreen() {
     }
   };
 
-  const friendQrImageUri = useMemo(() => buildFriendQrImageUri(myQrToken), [myQrToken]);
   const friendQrDeepLink = useMemo(() => buildFriendQrDeepLink(myQrToken), [myQrToken]);
+
+  useEffect(() => {
+    let active = true;
+    if (!friendQrDeepLink) {
+      setFriendQrSvg("");
+      return () => {
+        active = false;
+      };
+    }
+    void buildFriendQrSvg(friendQrDeepLink)
+      .then((svg) => {
+        if (active) {
+          setFriendQrSvg(svg);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setFriendQrSvg("");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [friendQrDeepLink]);
 
   const handleShareMyQr = async () => {
     if (!myQrToken) {
@@ -574,7 +669,7 @@ export default function ConfigScreen() {
             </View>
             {myQrToken ? (
               <View style={[styles.friendQrTokenCard, isNeo && styles.friendQrTokenCardNeo]}>
-                {friendQrImageUri ? <Image source={{ uri: friendQrImageUri }} style={styles.friendQrImage} /> : null}
+                {friendQrSvg ? <SvgXml xml={friendQrSvg} width={168} height={168} style={styles.friendQrImage} /> : null}
                 <Text style={[styles.friendQrTokenTitle, isNeo && styles.friendQrTokenTitleNeo]}>
                   {tr("好友二维码", "Friend QR")}
                 </Text>
@@ -938,11 +1033,33 @@ export default function ConfigScreen() {
             textContentType="oneTimeCode"
             importantForAutofill="no"
           />
-          <Pressable style={styles.accountAvatarPresetBtn} onPress={randomizeProfileAvatar}>
-            <Ionicons name="images-outline" size={14} color="#dbeafe" />
-            <Text style={styles.accountAvatarPresetBtnText}>{tr("随机头像", "Random Avatar")}</Text>
-          </Pressable>
-          <Pressable style={styles.accountSaveBtn} onPress={handleSaveProfile} disabled={savingProfile}>
+          <View style={styles.accountAvatarActionsRow}>
+            <Pressable
+              style={[styles.accountAvatarPresetBtn, (uploadingProfileAvatar || savingProfile) && styles.accountActionBtnDisabled]}
+              onPress={() => void handlePickProfileAvatar()}
+              disabled={uploadingProfileAvatar || savingProfile}
+            >
+              {uploadingProfileAvatar ? (
+                <ActivityIndicator size="small" color="#1d4ed8" />
+              ) : (
+                <Ionicons name="image-outline" size={14} color="#1d4ed8" />
+              )}
+              <Text style={styles.accountAvatarPresetBtnText}>{tr("从相册选择", "Choose Photo")}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.accountAvatarPresetBtn, (uploadingProfileAvatar || savingProfile) && styles.accountActionBtnDisabled]}
+              onPress={randomizeProfileAvatar}
+              disabled={uploadingProfileAvatar || savingProfile}
+            >
+              <Ionicons name="images-outline" size={14} color="#1d4ed8" />
+              <Text style={styles.accountAvatarPresetBtnText}>{tr("随机头像", "Random Avatar")}</Text>
+            </Pressable>
+          </View>
+          <Pressable
+            style={[styles.accountSaveBtn, (savingProfile || uploadingProfileAvatar) && styles.accountSaveBtnDisabled]}
+            onPress={handleSaveProfile}
+            disabled={savingProfile || uploadingProfileAvatar}
+          >
             {savingProfile ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
@@ -978,7 +1095,7 @@ export default function ConfigScreen() {
           </View>
           {myQrToken ? (
             <View style={styles.friendQrTokenCard}>
-              {friendQrImageUri ? <Image source={{ uri: friendQrImageUri }} style={styles.friendQrImage} /> : null}
+              {friendQrSvg ? <SvgXml xml={friendQrSvg} width={168} height={168} style={styles.friendQrImage} /> : null}
               <Text style={styles.friendQrTokenTitle}>{tr("好友二维码", "Friend QR")}</Text>
               <Text style={styles.friendQrTokenHint}>
                 {tr("有效期至：", "Expires at: ")}
@@ -1726,6 +1843,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   accountAvatarPresetBtn: {
+    flex: 1,
     minHeight: 36,
     borderRadius: 10,
     borderWidth: 1,
@@ -1741,6 +1859,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
   },
+  accountAvatarActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  accountActionBtnDisabled: {
+    opacity: 0.6,
+  },
   accountSaveBtn: {
     minHeight: 40,
     borderRadius: 10,
@@ -1749,6 +1874,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+  accountSaveBtnDisabled: {
+    opacity: 0.7,
   },
   accountSaveBtnText: {
     color: "white",

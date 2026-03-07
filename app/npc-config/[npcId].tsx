@@ -212,6 +212,9 @@ export default function NPCConfigScreen() {
         status: formStatus,
       });
       syncNPC(updated, { resetForm: true });
+      if (String(entrySource || "").trim()) {
+        router.back();
+      }
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -361,7 +364,7 @@ export default function NPCConfigScreen() {
                   </Pressable>
                 </View>
 
-                <Text style={styles.formLabel}>{tr("Name", "Name")}</Text>
+                <Text style={styles.formLabel}>{tr("Name *", "Name *")}</Text>
                 <TextInput
                   value={formName}
                   onChangeText={setFormName}
@@ -394,7 +397,7 @@ export default function NPCConfigScreen() {
                   style={[styles.input, styles.textareaSm, !canModifyNpc && styles.inputReadonly]}
                 />
 
-                <Text style={styles.formLabel}>{tr("System Prompt", "System Prompt")}</Text>
+                <Text style={styles.formLabel}>{tr("System Prompt *", "System Prompt *")}</Text>
                 <TextInput
                   value={formSystemPrompt}
                   onChangeText={setFormSystemPrompt}
