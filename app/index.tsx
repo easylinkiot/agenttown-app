@@ -395,11 +395,12 @@ export default function HomeScreen() {
       const cached = getCachedAgentSessions();
       const sessions = cached.length > 0 ? cached : await preloadAgentSessions();
       const latest = sessions[0];
+      const myBotName = String(botConfig.name || "").trim() || "MyBot";
       router.push({
         pathname: "/ai-chat/[id]" as never,
         params: {
           id: latest?.id || "new",
-          name: latest?.title || tr("AI 助手", "AI Assistant"),
+          name: latest?.title || myBotName,
           isGroup: "false",
         } as never,
       });
@@ -408,7 +409,7 @@ export default function HomeScreen() {
     } finally {
       setOpeningAskAnything(false);
     }
-  }, [openingAskAnything, router, tr]);
+  }, [botConfig.name, openingAskAnything, router]);
 
   const handleOpenNpc = useCallback(
     (npc: NPC) => {

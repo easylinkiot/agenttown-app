@@ -251,7 +251,11 @@ export default function AgentsScreen() {
               <Pressable style={styles.headerIcon} onPress={() => setSkillModal(true)}>
                 <Ionicons name="document-text-outline" size={16} color="rgba(226,232,240,0.92)" />
               </Pressable>
-              <Pressable style={styles.headerIconPrimary} onPress={() => setCreateModal(true)}>
+              <Pressable
+                style={styles.headerIconPrimary}
+                onPress={() => setCreateModal(true)}
+                testID="agents-open-create-modal-button"
+              >
                 <Ionicons name="person-add-outline" size={16} color="#0b1220" />
               </Pressable>
             </View>
@@ -418,7 +422,7 @@ export default function AgentsScreen() {
 
         <Modal visible={createModal} transparent animationType="fade" onRequestClose={() => setCreateModal(false)}>
           <Pressable style={styles.modalOverlay} onPress={() => setCreateModal(false)}>
-            <Pressable style={styles.modalCard} onPress={() => null}>
+            <Pressable style={styles.modalCard} onPress={() => null} testID="agents-create-modal">
               <View style={styles.modalHeader}>
                 <View style={styles.modalHeaderLeft}>
                   <View style={styles.modalTitleIcon}>
@@ -447,6 +451,7 @@ export default function AgentsScreen() {
                         void handlePickAvatar();
                       }}
                       disabled={uploadingAvatar}
+                      testID="agents-avatar-upload-button"
                     >
                       {uploadingAvatar ? (
                         <ActivityIndicator size="small" color="#ffffff" />
@@ -463,7 +468,11 @@ export default function AgentsScreen() {
                         ? tr("已选择", "Selected")
                         : tr("未选择文件", "No file chosen")}
                   </Text>
-                  <Pressable style={styles.avatarLinkBtn} onPress={() => setAvatarInputVisible((v) => !v)}>
+                  <Pressable
+                    style={styles.avatarLinkBtn}
+                    onPress={() => setAvatarInputVisible((v) => !v)}
+                    testID="agents-avatar-link-toggle"
+                  >
                     <Text style={styles.avatarLinkBtnText}>
                       {avatarInputVisible ? tr("隐藏图片链接", "Hide image URL") : tr("使用图片链接", "Use image URL")}
                     </Text>

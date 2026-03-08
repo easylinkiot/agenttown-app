@@ -472,7 +472,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
     backgroundColor: "rgba(15,23,42,0.48)",
-    padding: 12,
+    padding: 10,
     gap: 12,
   },
   dockTop: {
@@ -525,7 +525,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   quickSection: {
-    gap: 8,
+    gap: 6,
   },
   quickHeading: {
     color: "rgba(148,163,184,0.92)",
@@ -535,18 +535,18 @@ const styles = StyleSheet.create({
   },
   quickRow: {
     flexDirection: "row",
-    gap: 10,
-    paddingRight: 4,
+    gap: 6,
+    paddingHorizontal: 2,
   },
   quickItem: {
-    width: 92,
+    width: 72,
     alignItems: "center",
-    gap: 6,
+    gap: 5,
   },
   quickIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
+    width: 42,
+    height: 42,
+    borderRadius: 15,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -561,7 +561,7 @@ const styles = StyleSheet.create({
   },
   quickLabel: {
     color: "rgba(226,232,240,0.86)",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "800",
     textAlign: "center",
   },

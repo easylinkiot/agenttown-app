@@ -157,11 +157,16 @@ const MEDIA_SHEET_DRAG_CLOSE_DISTANCE = 120;
 const MEDIA_GRID_MIN_ITEM_SIZE = 80;
 const MEDIA_GRID_GAP = 8;
 const AUTO_TRANSLATE_BATCH_SIZE = 24;
+const COMPOSER_LINE_HEIGHT = 22;
+const COMPOSER_MIN_HEIGHT = 40;
+const COMPOSER_MAX_LINES = 5;
+const COMPOSER_VERTICAL_PADDING = 18;
+const COMPOSER_MAX_HEIGHT = COMPOSER_LINE_HEIGHT * COMPOSER_MAX_LINES + COMPOSER_VERTICAL_PADDING;
 const EMPTY_MESSAGES: ConversationMessage[] = [];
 const EMPTY_THREAD_MEMBERS: ThreadMember[] = [];
 const EMPTY_FRIENDS: Friend[] = [];
 const EMPTY_AGENTS: Agent[] = [];
-const ENABLE_MULTI_FUNCTION_PANEL = false;
+const ENABLE_MULTI_FUNCTION_PANEL = true;
 const PLUS_PANEL_ITEMS: PlusPanelItem[] = [
   { key: "image", icon: "image-outline", zh: "图片", en: "Image" },
   { key: "video", icon: "videocam-outline", zh: "视频", en: "Video" },
@@ -517,6 +522,10 @@ export default function ChatDetailScreen() {
   const { botConfig, language, refreshAll } = useAgentTown();
   const { messagesBySession, sessionLanguageById, refreshSessionMessages, updateSessionLanguage } = useAiChat();
   const messagesBySessionRef = useRef(messagesBySession);
+  const myBotDisplayName = useMemo(() => {
+    const name = String(botConfig.name || "").trim();
+    return name || "MyBot";
+  }, [botConfig.name]);
 
   const tr = (zh: string, en: string) => tx(language, zh, en);
   const threadDisplayLanguage: ThreadDisplayLanguage = sessionLanguageById[chatId] || language || "en";
@@ -574,22 +583,17 @@ export default function ChatDetailScreen() {
     setTranslationMode("off");
   }, [chatId]);
 
-  const activeAgentSession = useMemo(
-    () => agentSessions.find((session) => session.id === chatId),
-    [agentSessions, chatId]
-  );
-
   const thread = useMemo<ChatThread>(
     () => ({
       id: chatId,
-      name: activeAgentSession?.title || params.name || tr("AI 对话", "AI Chat"),
+      name: myBotDisplayName,
       avatar: params.avatar || botConfig.avatar,
       message: "",
       time: tr("刚刚", "Now"),
       isGroup: false,
       supportsVideo: true,
     }),
-    [activeAgentSession?.title, botConfig.avatar, chatId, params.avatar, params.name, tr]
+    [botConfig.avatar, chatId, myBotDisplayName, params.avatar, tr]
   );
 
   const friends = EMPTY_FRIENDS;
@@ -1259,23 +1263,48 @@ export default function ChatDetailScreen() {
         }
 
         const content = entry.asset.type === "video" ? tr("[视频]", "[Video]") : tr("[图片]", "[Image]");
-        const result = await sendMessage(chatId, {
-          content,
-          type: "image",
-          imageUri: uploadedUri,
-          imageName: uploadResult.name || entry.asset.filename || entry.asset.id,
-          senderId: user?.id,
-          senderName: user?.displayName || tr("我", "Me"),
-          senderAvatar: user?.avatar || botConfig.avatar,
-          senderType: "human",
-          isMe: true,
-          requestAI: false,
-          systemInstruction: botConfig.systemInstruction,
-        });
-        if (!result) {
-          failedCount += 1;
-          lastError = tr("上传成功但消息发送失败。", "Upload succeeded but message send failed.");
-          setPendingMessages((prev) => prev.filter((message) => message._id !== entry.localId));
+        const uploadedName = uploadResult.name || entry.asset.filename || entry.asset.id;
+        if (aiAgentMode) {
+          const mediaPrompt = [
+            entry.asset.type === "video"
+              ? tr("用户发送了一段视频。", "The user sent a video.")
+              : tr("用户发送了一张图片。", "The user sent an image."),
+            `${tr("文件名", "File")}: ${uploadedName}`,
+            `${tr("链接", "URL")}: ${uploadedUri}`,
+            tr(
+              "请结合这个附件继续对话。如果你无法直接读取媒体内容，要明确说明，并基于文件类型和当前上下文给出有帮助的下一步。",
+              "Continue the conversation with this attachment in mind. If you cannot directly inspect the media, say so clearly and still provide a helpful next step based on the file type and current context."
+            ),
+          ].join("\n");
+          const sent = await sendAiAgentTurn(mediaPrompt, {
+            clearInput: false,
+            localUserMessage: null,
+            preserveLocalMessageOnSuccess: true,
+          });
+          if (!sent) {
+            failedCount += 1;
+            lastError = tr("上传成功但 MyBot 处理失败。", "Upload succeeded but MyBot processing failed.");
+            setPendingMessages((prev) => prev.filter((message) => message._id !== entry.localId));
+          }
+        } else {
+          const result = await sendMessage(chatId, {
+            content,
+            type: "image",
+            imageUri: uploadedUri,
+            imageName: uploadedName,
+            senderId: user?.id,
+            senderName: user?.displayName || tr("我", "Me"),
+            senderAvatar: user?.avatar || botConfig.avatar,
+            senderType: "human",
+            isMe: true,
+            requestAI: false,
+            systemInstruction: botConfig.systemInstruction,
+          });
+          if (!result) {
+            failedCount += 1;
+            lastError = tr("上传成功但消息发送失败。", "Upload succeeded but message send failed.");
+            setPendingMessages((prev) => prev.filter((message) => message._id !== entry.localId));
+          }
         }
       } catch (err) {
         failedCount += 1;
@@ -1298,7 +1327,9 @@ export default function ChatDetailScreen() {
     chatId,
     currentUserId,
     formatApiError,
+    aiAgentMode,
     mediaSending,
+    sendAiAgentTurn,
     sendMessage,
     tr,
     user?.avatar,
@@ -1545,6 +1576,7 @@ export default function ChatDetailScreen() {
   const [loading, setLoading] = useState(() => messages.length === 0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
   const [submitting, setSubmitting] = useState(false);
   const [failedDraft, setFailedDraft] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -1560,6 +1592,12 @@ export default function ChatDetailScreen() {
     setShowOriginalByMessageId({});
     closeMediaSheet({ clearSelection: true, duration: 0 });
   }, [chatId, closeMediaSheet]);
+
+  useEffect(() => {
+    if (!input.trim()) {
+      setComposerHeight(COMPOSER_MIN_HEIGHT);
+    }
+  }, [input]);
 
   const abortMyBotStream = useCallback(() => {
     myBotStreamAbortRef.current?.abort();
@@ -1641,6 +1679,186 @@ export default function ChatDetailScreen() {
     },
     [enqueueLiveStreamText]
   );
+
+  async function sendAiAgentTurn(
+    content: string,
+    options?: {
+      clearInput?: boolean;
+      localUserMessage?: ConversationMessage | null;
+      preserveLocalMessageOnSuccess?: boolean;
+    }
+  ) {
+      const trimmedContent = content.trim();
+      if (!trimmedContent || !chatId || submitting) return false;
+
+      const defaultLocalId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const defaultLocalMessage: ConversationMessage = {
+        id: defaultLocalId,
+        threadId: chatId,
+        senderId: user?.id,
+        senderName: user?.displayName || tr("我", "Me"),
+        senderAvatar: user?.avatar || botConfig.avatar,
+        senderType: "human",
+        content: trimmedContent,
+        type: "text",
+        isMe: true,
+        time: tr("刚刚", "Now"),
+      };
+      const localUserMessage =
+        options?.localUserMessage === undefined ? defaultLocalMessage : options.localUserMessage;
+      const localUserMessageId = localUserMessage?.id || "";
+      const preserveLocalMessageOnSuccess = Boolean(options?.preserveLocalMessageOnSuccess);
+
+      if (localUserMessage) {
+        setPendingMessages((prev) =>
+          GiftedChat.append(prev, [toGiftedMessage(localUserMessage, currentUserId, Date.now())])
+        );
+      }
+
+      setSubmitting(true);
+      setFailedDraft(null);
+      if (options?.clearInput ?? true) {
+        setInput("");
+      }
+
+      let ok = false;
+      let botLocalId = "";
+      try {
+        const startedFromNewAgentSession = isNewAgentSession;
+        let resolvedAgentSessionId = "";
+        botLocalId = `local_bot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const botMessage: ConversationMessage = {
+          id: botLocalId,
+          threadId: chatId,
+          senderId: "assistant",
+          senderName: myBotDisplayName,
+          senderAvatar: thread.avatar || botConfig.avatar,
+          senderType: "agent",
+          content: "",
+          type: "text",
+          isMe: false,
+          time: tr("刚刚", "Now"),
+        };
+        setPendingMessages((prev) =>
+          GiftedChat.append(prev, [toGiftedMessage(botMessage, currentUserId, Date.now())])
+        );
+
+        const controller = new AbortController();
+        myBotStreamAbortRef.current = controller;
+        setMyBotStreaming(true);
+        let latestText = "";
+        try {
+          const completionsRequest: ChatCompletionsRequest = {
+            stream: true,
+            input: trimmedContent,
+            prompt: "",
+            session_id: isNewAgentSession ? "" : chatId,
+            target_type: "self",
+            target_id: "root",
+            bot_owner_user_id: "",
+            skill_ids: [],
+          };
+
+          await runChatCompletions(
+            completionsRequest,
+            {
+              onText: (text) => {
+                if (controller.signal.aborted) return;
+                latestText = text;
+                enqueueLiveStreamText(botLocalId, text);
+              },
+              onEvent: (_eventName, payload) => {
+                const nextSessionId = extractSessionIdFromSSEPayload(payload);
+                if (nextSessionId) {
+                  resolvedAgentSessionId = nextSessionId;
+                }
+              },
+            },
+            controller.signal
+          );
+        } finally {
+          myBotStreamAbortRef.current = null;
+          setMyBotStreaming(false);
+        }
+
+        const finalText = latestText.trim();
+        if (finalText) {
+          setPendingMessages((prev) =>
+            prev.map((msg) => {
+              if (msg._id !== botLocalId) return msg;
+              return {
+                ...msg,
+                text: finalText,
+                raw: {
+                  ...msg.raw,
+                  content: finalText,
+                },
+              };
+            })
+          );
+          finalizeLiveStreamById(botLocalId, finalText);
+          ok = true;
+
+          const nextSessionId = (resolvedAgentSessionId || (isNewAgentSession ? "" : chatId)).trim();
+          if (nextSessionId) {
+            let refreshed = false;
+            await refreshSessionMessages(nextSessionId)
+              .then(() => {
+                refreshed = true;
+              })
+              .catch(() => {
+                // keep successful send even if refresh fails
+              });
+            if (refreshed) {
+              setPendingMessages((prev) =>
+                prev.filter((msg) => {
+                  if (msg._id === botLocalId) return false;
+                  if (!preserveLocalMessageOnSuccess && localUserMessageId && msg._id === localUserMessageId) return false;
+                  return true;
+                })
+              );
+            }
+            if (startedFromNewAgentSession) {
+              setTimeout(async () => {
+                await refreshAgentSessionsCache(true);
+              }, 3000);
+            }
+            if (nextSessionId !== chatId) {
+              router.replace({
+                pathname: "/ai-chat/[id]" as never,
+                params: {
+                  id: nextSessionId,
+                  isGroup: "false",
+                } as never,
+              });
+            }
+          }
+        } else if (controller.signal.aborted) {
+          ok = true;
+          clearLiveStreamById(botLocalId);
+          setPendingMessages((prev) => prev.filter((msg) => msg._id !== botLocalId));
+        } else {
+          clearLiveStreamById(botLocalId);
+          setPendingMessages((prev) => prev.filter((msg) => msg._id !== botLocalId));
+          setFailedDraft(trimmedContent);
+        }
+      } catch {
+        if (botLocalId) {
+          clearLiveStreamById(botLocalId);
+          setPendingMessages((prev) => prev.filter((msg) => msg._id !== botLocalId));
+          myBotStreamAbortRef.current = null;
+          setMyBotStreaming(false);
+        }
+        setFailedDraft(trimmedContent);
+      } finally {
+        setSubmitting(false);
+        if (!ok && localUserMessageId) {
+          setPendingMessages((prev) => prev.filter((msg) => msg._id !== localUserMessageId));
+        }
+      }
+
+      return ok;
+  }
 
   const stopAllStreams = useCallback(() => {
     Object.values(streamTimersRef.current).forEach((timer) => clearTimeout(timer));
@@ -2101,6 +2319,10 @@ export default function ChatDetailScreen() {
   const handleSend = async (override?: string) => {
     const content = (override ?? input).trim();
     if (!content || submitting || !chatId) return;
+    if (isMyBotChatThreadId(chatId) || aiAgentMode) {
+      await sendAiAgentTurn(content, { clearInput: true });
+      return;
+    }
 
     const localId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const localMessage: ConversationMessage = {
@@ -2122,7 +2344,6 @@ export default function ChatDetailScreen() {
     setInput("");
 
     let ok = false;
-    let botLocalId = "";
     try {
       if (thread.isGroup) {
         const ids = mentionMemberIDs(content, members);
@@ -2137,125 +2358,6 @@ export default function ChatDetailScreen() {
           await generateRoleReplies(chatId, content, ids.length ? ids : undefined);
           ok = true;
         }
-      } else if (isMyBotChatThreadId(chatId) || aiAgentMode) {
-        const startedFromNewAgentSession = isNewAgentSession;
-        let resolvedAgentSessionId = "";
-        botLocalId = `local_bot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const botMessage: ConversationMessage = {
-          id: botLocalId,
-          threadId: chatId,
-          senderId: aiAgentMode ? "assistant" : chatId === "mybot" ? "agent_mybot" : chatId,
-          senderName: aiAgentMode ? tr("AI 助手", "AI Assistant") : thread.name || botConfig.name || "MyBot",
-          senderAvatar: thread.avatar || botConfig.avatar,
-          senderType: "agent",
-          content: "",
-          type: "text",
-          isMe: false,
-          time: tr("刚刚", "Now"),
-        };
-        setPendingMessages((prev) => GiftedChat.append(prev, [toGiftedMessage(botMessage, currentUserId, Date.now())]));
-
-        const controller = new AbortController();
-        myBotStreamAbortRef.current = controller;
-        setMyBotStreaming(true);
-        let latestText = "";
-        try {
-          const completionsRequest: ChatCompletionsRequest = {
-            stream: true,
-            input: content,
-            prompt: "",
-            session_id: aiAgentMode ? (isNewAgentSession ? "" : chatId) : myBotSessionIdRef.current,
-            target_type: "self",
-            target_id: "root",
-            bot_owner_user_id: "",
-            skill_ids: [],
-          };
-
-          await runChatCompletions(
-            completionsRequest,
-            {
-              onText: (text) => {
-                if (controller.signal.aborted) return;
-                latestText = text;
-                enqueueLiveStreamText(botLocalId, text);
-              },
-              onEvent: (eventName, payload) => {
-                if (!aiAgentMode && eventName !== "message_start" && eventName !== "trace") return;
-                const nextSessionId = extractSessionIdFromSSEPayload(payload);
-                if (nextSessionId) {
-                  if (aiAgentMode) {
-                    resolvedAgentSessionId = nextSessionId;
-                  } else {
-                    myBotSessionIdRef.current = nextSessionId;
-                  }
-                }
-              },
-            },
-            controller.signal
-          );
-        } finally {
-          myBotStreamAbortRef.current = null;
-          setMyBotStreaming(false);
-        }
-
-        const finalText = latestText.trim();
-        if (finalText) {
-          setPendingMessages((prev) =>
-            prev.map((msg) => {
-              if (msg._id !== botLocalId) return msg;
-              return {
-                ...msg,
-                text: finalText,
-                raw: {
-                  ...msg.raw,
-                  content: finalText,
-                },
-              };
-            })
-          );
-          finalizeLiveStreamById(botLocalId, finalText);
-          ok = true;
-          if (aiAgentMode) {
-            const nextSessionId = (resolvedAgentSessionId || (isNewAgentSession ? "" : chatId)).trim();
-            if (nextSessionId) {
-              let refreshed = false;
-              await refreshSessionMessages(nextSessionId)
-                .then(() => {
-                  refreshed = true;
-                })
-                .catch(() => {
-                  // Keep send result successful even when list refresh fails.
-                });
-              if (refreshed) {
-                setPendingMessages((prev) =>
-                  prev.filter((msg) => msg._id !== localId && msg._id !== botLocalId)
-                );
-              }
-              if (startedFromNewAgentSession) {
-                setTimeout(async () => {
-                  await refreshAgentSessionsCache(true);
-                }, 3000);
-              }
-              if (nextSessionId !== chatId) {
-                router.replace({
-                  pathname: "/ai-chat/[id]" as never,
-                  params: {
-                    id: nextSessionId,
-                    isGroup: "false",
-                  } as never,
-                });
-              }
-            }
-          }
-        } else if (controller.signal.aborted) {
-          ok = true;
-          clearLiveStreamById(botLocalId);
-          setPendingMessages((prev) => prev.filter((msg) => msg._id !== botLocalId));
-        } else {
-          setFailedDraft(content);
-          clearLiveStreamById(botLocalId);
-          setPendingMessages((prev) => prev.filter((msg) => msg._id !== botLocalId));
-        }
       } else {
         const result = await sendUserOnlyMessage(content);
         if (!result) {
@@ -2265,12 +2367,6 @@ export default function ChatDetailScreen() {
         }
       }
     } catch {
-      if (botLocalId) {
-        clearLiveStreamById(botLocalId);
-        setPendingMessages((prev) => prev.filter((msg) => msg._id !== botLocalId));
-        myBotStreamAbortRef.current = null;
-        setMyBotStreaming(false);
-      }
       setFailedDraft(content);
     } finally {
       setSubmitting(false);
@@ -3245,25 +3341,45 @@ export default function ChatDetailScreen() {
 
   const renderToolbarComposer = useCallback(
     (props: ComposerProps) => {
-      const upstreamOnFocus = props?.textInputProps?.onFocus;
-      const upstreamOnBlur = props?.textInputProps?.onBlur;
-      const upstreamOnChangeText = props?.textInputProps?.onChangeText as ((value: string) => void) | undefined;
+      const upstreamTextInputProps = props?.textInputProps || {};
+      const upstreamOnFocus = upstreamTextInputProps.onFocus;
+      const upstreamOnBlur = upstreamTextInputProps.onBlur;
+      const upstreamOnChangeText = upstreamTextInputProps.onChangeText as ((value: string) => void) | undefined;
+      const upstreamOnContentSizeChange = upstreamTextInputProps.onContentSizeChange;
       return (
-        <View style={styles.inputBox}>
+        <View style={[styles.inputBox, { minHeight: Math.max(44, composerHeight + 4) }]}>
           <Composer
             {...props}
-            textInputStyle={styles.input}
+            textInputStyle={[
+              styles.input,
+              {
+                height: composerHeight,
+                minHeight: COMPOSER_MIN_HEIGHT,
+                maxHeight: COMPOSER_MAX_HEIGHT,
+              },
+            ]}
             placeholderTextColor="rgba(148,163,184,0.9)"
             textInputProps={{
-              ...(props?.textInputProps || {}),
+              ...upstreamTextInputProps,
               testID: "chat-message-input",
               nativeID: "chat-message-input",
               accessibilityLabel: "chat-message-input",
               showSoftInputOnFocus: true,
               editable: !isStreaming,
+              multiline: true,
+              blurOnSubmit: false,
               maxLength: 4000,
+              scrollEnabled: composerHeight >= COMPOSER_MAX_HEIGHT,
+              onContentSizeChange: (event) => {
+                upstreamOnContentSizeChange?.(event);
+                const measured = Math.ceil(event?.nativeEvent?.contentSize?.height || COMPOSER_MIN_HEIGHT);
+                const nextHeight = Math.min(
+                  COMPOSER_MAX_HEIGHT,
+                  Math.max(COMPOSER_MIN_HEIGHT, measured)
+                );
+                setComposerHeight((prev) => (Math.abs(prev - nextHeight) < 1 ? prev : nextHeight));
+              },
               onChangeText: (value: string) => {
-                // Keep GiftedChat pipeline, but also force local draft sync as fallback.
                 props.onTextChanged?.(value);
                 upstreamOnChangeText?.(value);
                 setInput(value);
@@ -3281,7 +3397,7 @@ export default function ChatDetailScreen() {
         </View>
       );
     },
-    [handleChatInputBlur, handleChatInputFocus, isStreaming]
+    [composerHeight, handleChatInputBlur, handleChatInputFocus, isStreaming]
   );
 
   const renderToolbarSend = useCallback(() => {
@@ -3345,7 +3461,7 @@ export default function ChatDetailScreen() {
                 {thread.isGroup
                   ? tr(`${Math.max(thread.memberCount || 0, members.length)} people active`, `${Math.max(thread.memberCount || 0, members.length)} people active`)
                   : aiAgentMode
-                    ? tr("AI Agent", "AI Agent")
+                    ? tr("私人助手", "Private Assistant")
                     : tr("Direct", "Direct")}
               </Text>
             </Pressable>
@@ -3370,6 +3486,7 @@ export default function ChatDetailScreen() {
                         gap: 6,
                       },
                     ]}
+                    testID="chat-mybot-panel-button"
                     onPress={() => {
                       setMyBotQuestion("");
                       setMyBotAnswer(null);
@@ -3925,79 +4042,88 @@ export default function ChatDetailScreen() {
 
         <Modal visible={myBotPanel} transparent animationType="fade" onRequestClose={() => setMyBotPanel(false)}>
           <Pressable style={styles.modalOverlay} onPress={() => setMyBotPanel(false)}>
-            <Pressable style={styles.memberCard} onPress={() => null}>
-              <View style={styles.memberHeader}>
-                <Text style={styles.memberTitle}>MyBot</Text>
-                <Pressable style={styles.closeTiny} onPress={() => setMyBotPanel(false)}>
-                  <Ionicons name="close" size={16} color="rgba(226,232,240,0.85)" />
-                </Pressable>
+            <Pressable testID="chat-mybot-panel" style={styles.myBotCard} onPress={() => null}>
+              <View pointerEvents="none" style={styles.myBotDecorLayer}>
+                <View style={[styles.myBotOrb, styles.myBotOrbPrimary]} />
+                <View style={[styles.myBotOrb, styles.myBotOrbSecondary]} />
+                <View style={[styles.myBotOrb, styles.myBotOrbAccent]} />
+                <View style={styles.myBotGlowBand} />
               </View>
-              <Text style={[styles.memberHint, { marginBottom: 10 }]}>
-                {tr("只对你可见，基于当前群聊上下文回答。", "Private to you, answers with current group context.")}
-              </Text>
-              <TextInput
-                value={myBotQuestion}
-                onChangeText={setMyBotQuestion}
-                placeholder={tr("问 MyBot 当前群聊的问题", "Ask MyBot about this group")}
-                placeholderTextColor="rgba(148,163,184,0.9)"
-                multiline
-                style={{
-                  minHeight: 72,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(15,23,42,0.55)",
-                  color: "rgba(241,245,249,0.96)",
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  fontSize: 15,
-                  textAlignVertical: "top",
-                  marginBottom: 10,
-                }}
-                editable={!myBotBusy}
-              autoComplete="off"
-              textContentType="oneTimeCode"
-              importantForAutofill="no"
-              />
-              {myBotError ? <Text style={styles.aiError}>{myBotError}</Text> : null}
-              {myBotAnswer ? (
-                <ScrollView style={{ maxHeight: 220, marginBottom: 10 }}>
-                  <View style={styles.aiAnswerBox}>
-                    <Text style={styles.aiAnswerText}>{myBotAnswer}</Text>
+              <View style={styles.myBotContent}>
+                <View style={styles.myBotHero}>
+                  <View style={styles.myBotHeroLeft}>
+                    <View style={styles.myBotBadge}>
+                      <Ionicons name="sparkles-outline" size={18} color="rgba(191,219,254,0.98)" />
+                    </View>
+                    <View style={styles.myBotHeroCopy}>
+                      <Text style={styles.myBotTitle}>MyBot</Text>
+                      <Text style={styles.myBotSubtitle}>
+                        {tr(
+                          "只对你可见。MyBot 会基于当前群聊内容给你一个私有回答。",
+                          "Private to you. MyBot answers with the current group context."
+                        )}
+                      </Text>
+                    </View>
                   </View>
-                </ScrollView>
-              ) : null}
-              <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
-                <Pressable
-                  style={[
-                    styles.filterBtn,
-                    { minHeight: 42, minWidth: 96, alignItems: "center", justifyContent: "center" },
-                  ]}
-                  onPress={() => setMyBotPanel(false)}
-                >
-                  <Text style={styles.filterText}>{tr("关闭", "Close")}</Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.filterBtn,
-                    {
-                      minHeight: 42,
-                      minWidth: 108,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor:
-                        myBotBusy || !myBotQuestion.trim()
-                          ? "rgba(51,65,85,0.45)"
-                          : "rgba(147,197,253,0.28)",
-                    },
-                  ]}
-                  onPress={() => void runGroupMyBot()}
-                  disabled={myBotBusy || !myBotQuestion.trim()}
-                >
-                  <Text style={[styles.filterText, { color: "rgba(219,234,254,0.98)" }]}>
-                    {myBotBusy ? tr("思考中...", "Thinking...") : tr("询问", "Ask")}
-                  </Text>
-                </Pressable>
+                  <Pressable style={styles.closeTiny} onPress={() => setMyBotPanel(false)}>
+                    <Ionicons name="close" size={16} color="rgba(226,232,240,0.85)" />
+                  </Pressable>
+                </View>
+                <View style={styles.myBotSection}>
+                  <Text style={styles.myBotLabel}>{tr("问题", "Question")}</Text>
+                  <TextInput
+                    value={myBotQuestion}
+                    onChangeText={setMyBotQuestion}
+                    placeholder={tr("例如：请总结这轮讨论的关键决定和待办", "For example: summarize the key decisions and action items from this discussion")}
+                    placeholderTextColor="rgba(148,163,184,0.9)"
+                    multiline
+                    style={styles.myBotInput}
+                    editable={!myBotBusy}
+                    autoComplete="off"
+                    textContentType="oneTimeCode"
+                    importantForAutofill="no"
+                  />
+                </View>
+                {myBotError ? <Text style={styles.aiError}>{myBotError}</Text> : null}
+                <View style={styles.myBotSection}>
+                  <Text style={styles.myBotLabel}>{tr("回答", "Answer")}</Text>
+                  {myBotAnswer ? (
+                    <ScrollView style={styles.myBotAnswerScroll} contentContainerStyle={styles.myBotAnswerScrollContent}>
+                      <View style={styles.aiAnswerBox}>
+                        <Text style={styles.aiAnswerText}>{myBotAnswer}</Text>
+                      </View>
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.myBotEmptyState}>
+                      <Text style={styles.myBotEmptyText}>
+                        {tr(
+                          "输入你的问题后，MyBot 会在这里给出私有建议。",
+                          "Ask your question and MyBot will return a private suggestion here."
+                        )}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.myBotActions}>
+                  <Pressable
+                    style={styles.myBotSecondaryAction}
+                    onPress={() => setMyBotPanel(false)}
+                  >
+                    <Text style={styles.myBotSecondaryActionText}>{tr("关闭", "Close")}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.myBotPrimaryAction,
+                      (myBotBusy || !myBotQuestion.trim()) && styles.myBotPrimaryActionDisabled,
+                    ]}
+                    onPress={() => void runGroupMyBot()}
+                    disabled={myBotBusy || !myBotQuestion.trim()}
+                  >
+                    <Text style={styles.myBotPrimaryActionText}>
+                      {myBotBusy ? tr("思考中...", "Thinking...") : tr("询问", "Ask")}
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
             </Pressable>
           </Pressable>
@@ -4947,7 +5073,8 @@ const styles = StyleSheet.create({
   inputBox: {
     flex: 1,
     minHeight: 44,
-    justifyContent: "center",
+    alignItems: "stretch",
+    justifyContent: "flex-start",
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
@@ -4957,12 +5084,12 @@ const styles = StyleSheet.create({
   input: {
     color: "#e2e8f0",
     fontSize: 17,
-    lineHeight: 22,
+    lineHeight: COMPOSER_LINE_HEIGHT,
     paddingTop: 9,
     paddingBottom: 9,
     includeFontPadding: false,
-    textAlignVertical: "center",
-    maxHeight: 120,
+    textAlignVertical: "top",
+    maxHeight: COMPOSER_MAX_HEIGHT,
   },
   sendBtn: {
     width: 40,
@@ -5242,6 +5369,184 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 360,
     maxHeight: "92%",
+  },
+  myBotCard: {
+    width: "92%",
+    maxWidth: 520,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(125,211,252,0.2)",
+    backgroundColor: "rgba(4,8,20,0.94)",
+    padding: 16,
+    maxHeight: "88%",
+    overflow: "hidden",
+    position: "relative",
+    shadowColor: "#000000",
+    shadowOpacity: 0.36,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+  },
+  myBotDecorLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  myBotContent: {
+    gap: 14,
+    zIndex: 1,
+  },
+  myBotOrb: {
+    position: "absolute",
+    borderRadius: 999,
+  },
+  myBotOrbPrimary: {
+    width: 220,
+    height: 220,
+    top: -118,
+    left: -84,
+    backgroundColor: "rgba(37,99,235,0.2)",
+  },
+  myBotOrbSecondary: {
+    width: 210,
+    height: 210,
+    right: -112,
+    bottom: -116,
+    backgroundColor: "rgba(91,33,182,0.18)",
+  },
+  myBotOrbAccent: {
+    width: 120,
+    height: 120,
+    top: 96,
+    right: 54,
+    backgroundColor: "rgba(14,165,233,0.09)",
+  },
+  myBotGlowBand: {
+    position: "absolute",
+    top: -54,
+    left: 24,
+    width: "72%",
+    height: 124,
+    borderRadius: 999,
+    backgroundColor: "rgba(191,219,254,0.08)",
+  },
+  myBotHero: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  myBotHeroLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  myBotBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(30,41,59,0.62)",
+    borderWidth: 1,
+    borderColor: "rgba(147,197,253,0.34)",
+  },
+  myBotHeroCopy: {
+    flex: 1,
+    gap: 4,
+    paddingTop: 2,
+  },
+  myBotTitle: {
+    color: "#f8fafc",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  myBotSubtitle: {
+    color: "rgba(148,163,184,0.98)",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  myBotSection: {
+    gap: 8,
+  },
+  myBotLabel: {
+    color: "rgba(191,219,254,0.95)",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  myBotInput: {
+    minHeight: 112,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.18)",
+    backgroundColor: "rgba(8,15,32,0.72)",
+    color: "rgba(241,245,249,0.96)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    lineHeight: 21,
+    textAlignVertical: "top",
+  },
+  myBotAnswerScroll: {
+    maxHeight: 240,
+  },
+  myBotAnswerScrollContent: {
+    paddingBottom: 2,
+  },
+  myBotEmptyState: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+    backgroundColor: "rgba(8,15,32,0.52)",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  myBotEmptyText: {
+    color: "rgba(148,163,184,0.96)",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  myBotActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  myBotSecondaryAction: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.2)",
+    backgroundColor: "rgba(9,17,35,0.76)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  myBotSecondaryActionText: {
+    color: "rgba(226,232,240,0.92)",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  myBotPrimaryAction: {
+    flex: 1.2,
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(147,197,253,0.36)",
+    backgroundColor: "rgba(37,99,235,0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  myBotPrimaryActionDisabled: {
+    backgroundColor: "rgba(51,65,85,0.55)",
+    borderColor: "rgba(148,163,184,0.12)",
+  },
+  myBotPrimaryActionText: {
+    color: "#eff6ff",
+    fontSize: 13,
+    fontWeight: "900",
   },
   memberHeader: {
     flexDirection: "row",

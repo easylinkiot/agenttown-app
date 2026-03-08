@@ -3345,6 +3345,7 @@ export default function ChatDetailScreen() {
                         gap: 6,
                       },
                     ]}
+                    testID="chat-mybot-panel-button"
                     onPress={() => {
                       setMyBotQuestion("");
                       setMyBotAnswer(null);
@@ -3900,79 +3901,88 @@ export default function ChatDetailScreen() {
 
         <Modal visible={myBotPanel} transparent animationType="fade" onRequestClose={() => setMyBotPanel(false)}>
           <Pressable style={styles.modalOverlay} onPress={() => setMyBotPanel(false)}>
-            <Pressable style={styles.memberCard} onPress={() => null}>
-              <View style={styles.memberHeader}>
-                <Text style={styles.memberTitle}>MyBot</Text>
-                <Pressable style={styles.closeTiny} onPress={() => setMyBotPanel(false)}>
-                  <Ionicons name="close" size={16} color="rgba(226,232,240,0.85)" />
-                </Pressable>
+            <Pressable testID="chat-mybot-panel" style={styles.myBotCard} onPress={() => null}>
+              <View pointerEvents="none" style={styles.myBotDecorLayer}>
+                <View style={[styles.myBotOrb, styles.myBotOrbPrimary]} />
+                <View style={[styles.myBotOrb, styles.myBotOrbSecondary]} />
+                <View style={[styles.myBotOrb, styles.myBotOrbAccent]} />
+                <View style={styles.myBotGlowBand} />
               </View>
-              <Text style={[styles.memberHint, { marginBottom: 10 }]}>
-                {tr("只对你可见，基于当前群聊上下文回答。", "Private to you, answers with current group context.")}
-              </Text>
-              <TextInput
-                value={myBotQuestion}
-                onChangeText={setMyBotQuestion}
-                placeholder={tr("问 MyBot 当前群聊的问题", "Ask MyBot about this group")}
-                placeholderTextColor="rgba(148,163,184,0.9)"
-                multiline
-                style={{
-                  minHeight: 72,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(15,23,42,0.55)",
-                  color: "rgba(241,245,249,0.96)",
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  fontSize: 15,
-                  textAlignVertical: "top",
-                  marginBottom: 10,
-                }}
-                editable={!myBotBusy}
-              autoComplete="off"
-              textContentType="oneTimeCode"
-              importantForAutofill="no"
-              />
-              {myBotError ? <Text style={styles.aiError}>{myBotError}</Text> : null}
-              {myBotAnswer ? (
-                <ScrollView style={{ maxHeight: 220, marginBottom: 10 }}>
-                  <View style={styles.aiAnswerBox}>
-                    <Text style={styles.aiAnswerText}>{myBotAnswer}</Text>
+              <View style={styles.myBotContent}>
+                <View style={styles.myBotHero}>
+                  <View style={styles.myBotHeroLeft}>
+                    <View style={styles.myBotBadge}>
+                      <Ionicons name="sparkles-outline" size={18} color="rgba(191,219,254,0.98)" />
+                    </View>
+                    <View style={styles.myBotHeroCopy}>
+                      <Text style={styles.myBotTitle}>MyBot</Text>
+                      <Text style={styles.myBotSubtitle}>
+                        {tr(
+                          "只对你可见。MyBot 会基于当前群聊内容给你一个私有回答。",
+                          "Private to you. MyBot answers with the current group context."
+                        )}
+                      </Text>
+                    </View>
                   </View>
-                </ScrollView>
-              ) : null}
-              <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
-                <Pressable
-                  style={[
-                    styles.filterBtn,
-                    { minHeight: 42, minWidth: 96, alignItems: "center", justifyContent: "center" },
-                  ]}
-                  onPress={() => setMyBotPanel(false)}
-                >
-                  <Text style={styles.filterText}>{tr("关闭", "Close")}</Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.filterBtn,
-                    {
-                      minHeight: 42,
-                      minWidth: 108,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor:
-                        myBotBusy || !myBotQuestion.trim()
-                          ? "rgba(51,65,85,0.45)"
-                          : "rgba(147,197,253,0.28)",
-                    },
-                  ]}
-                  onPress={() => void runGroupMyBot()}
-                  disabled={myBotBusy || !myBotQuestion.trim()}
-                >
-                  <Text style={[styles.filterText, { color: "rgba(219,234,254,0.98)" }]}>
-                    {myBotBusy ? tr("思考中...", "Thinking...") : tr("询问", "Ask")}
-                  </Text>
-                </Pressable>
+                  <Pressable style={styles.closeTiny} onPress={() => setMyBotPanel(false)}>
+                    <Ionicons name="close" size={16} color="rgba(226,232,240,0.85)" />
+                  </Pressable>
+                </View>
+                <View style={styles.myBotSection}>
+                  <Text style={styles.myBotLabel}>{tr("问题", "Question")}</Text>
+                  <TextInput
+                    value={myBotQuestion}
+                    onChangeText={setMyBotQuestion}
+                    placeholder={tr("例如：请总结这轮讨论的关键决定和待办", "For example: summarize the key decisions and action items from this discussion")}
+                    placeholderTextColor="rgba(148,163,184,0.9)"
+                    multiline
+                    style={styles.myBotInput}
+                    editable={!myBotBusy}
+                    autoComplete="off"
+                    textContentType="oneTimeCode"
+                    importantForAutofill="no"
+                  />
+                </View>
+                {myBotError ? <Text style={styles.aiError}>{myBotError}</Text> : null}
+                <View style={styles.myBotSection}>
+                  <Text style={styles.myBotLabel}>{tr("回答", "Answer")}</Text>
+                  {myBotAnswer ? (
+                    <ScrollView style={styles.myBotAnswerScroll} contentContainerStyle={styles.myBotAnswerScrollContent}>
+                      <View style={styles.aiAnswerBox}>
+                        <Text style={styles.aiAnswerText}>{myBotAnswer}</Text>
+                      </View>
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.myBotEmptyState}>
+                      <Text style={styles.myBotEmptyText}>
+                        {tr(
+                          "输入你的问题后，MyBot 会在这里给出私有建议。",
+                          "Ask your question and MyBot will return a private suggestion here."
+                        )}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.myBotActions}>
+                  <Pressable
+                    style={styles.myBotSecondaryAction}
+                    onPress={() => setMyBotPanel(false)}
+                  >
+                    <Text style={styles.myBotSecondaryActionText}>{tr("关闭", "Close")}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.myBotPrimaryAction,
+                      (myBotBusy || !myBotQuestion.trim()) && styles.myBotPrimaryActionDisabled,
+                    ]}
+                    onPress={() => void runGroupMyBot()}
+                    disabled={myBotBusy || !myBotQuestion.trim()}
+                  >
+                    <Text style={styles.myBotPrimaryActionText}>
+                      {myBotBusy ? tr("思考中...", "Thinking...") : tr("询问", "Ask")}
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
             </Pressable>
           </Pressable>
@@ -5217,6 +5227,184 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 360,
     maxHeight: "92%",
+  },
+  myBotCard: {
+    width: "92%",
+    maxWidth: 520,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(125,211,252,0.2)",
+    backgroundColor: "rgba(4,8,20,0.94)",
+    padding: 16,
+    maxHeight: "88%",
+    overflow: "hidden",
+    position: "relative",
+    shadowColor: "#000000",
+    shadowOpacity: 0.36,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+  },
+  myBotDecorLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  myBotContent: {
+    gap: 14,
+    zIndex: 1,
+  },
+  myBotOrb: {
+    position: "absolute",
+    borderRadius: 999,
+  },
+  myBotOrbPrimary: {
+    width: 220,
+    height: 220,
+    top: -118,
+    left: -84,
+    backgroundColor: "rgba(37,99,235,0.2)",
+  },
+  myBotOrbSecondary: {
+    width: 210,
+    height: 210,
+    right: -112,
+    bottom: -116,
+    backgroundColor: "rgba(91,33,182,0.18)",
+  },
+  myBotOrbAccent: {
+    width: 120,
+    height: 120,
+    top: 96,
+    right: 54,
+    backgroundColor: "rgba(14,165,233,0.09)",
+  },
+  myBotGlowBand: {
+    position: "absolute",
+    top: -54,
+    left: 24,
+    width: "72%",
+    height: 124,
+    borderRadius: 999,
+    backgroundColor: "rgba(191,219,254,0.08)",
+  },
+  myBotHero: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  myBotHeroLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  myBotBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(30,41,59,0.62)",
+    borderWidth: 1,
+    borderColor: "rgba(147,197,253,0.34)",
+  },
+  myBotHeroCopy: {
+    flex: 1,
+    gap: 4,
+    paddingTop: 2,
+  },
+  myBotTitle: {
+    color: "#f8fafc",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  myBotSubtitle: {
+    color: "rgba(148,163,184,0.98)",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  myBotSection: {
+    gap: 8,
+  },
+  myBotLabel: {
+    color: "rgba(191,219,254,0.95)",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  myBotInput: {
+    minHeight: 112,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.18)",
+    backgroundColor: "rgba(8,15,32,0.72)",
+    color: "rgba(241,245,249,0.96)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    lineHeight: 21,
+    textAlignVertical: "top",
+  },
+  myBotAnswerScroll: {
+    maxHeight: 240,
+  },
+  myBotAnswerScrollContent: {
+    paddingBottom: 2,
+  },
+  myBotEmptyState: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+    backgroundColor: "rgba(8,15,32,0.52)",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  myBotEmptyText: {
+    color: "rgba(148,163,184,0.96)",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  myBotActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  myBotSecondaryAction: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.2)",
+    backgroundColor: "rgba(9,17,35,0.76)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  myBotSecondaryActionText: {
+    color: "rgba(226,232,240,0.92)",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  myBotPrimaryAction: {
+    flex: 1.2,
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(147,197,253,0.36)",
+    backgroundColor: "rgba(37,99,235,0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  myBotPrimaryActionDisabled: {
+    backgroundColor: "rgba(51,65,85,0.55)",
+    borderColor: "rgba(148,163,184,0.12)",
+  },
+  myBotPrimaryActionText: {
+    color: "#eff6ff",
+    fontSize: 13,
+    fontWeight: "900",
   },
   memberHeader: {
     flexDirection: "row",

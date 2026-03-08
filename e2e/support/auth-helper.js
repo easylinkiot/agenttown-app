@@ -1,4 +1,4 @@
-/* global __dirname, waitFor, element, by */
+/* global __dirname, waitFor, element, by, device */
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -121,6 +121,62 @@ async function safeReplaceText(id, value, scrollId = "auth-sign-in-scroll") {
   throw new Error(`failed to fill input: ${id}`);
 }
 
+async function tapVisibleById(id, options = {}) {
+  const { scrollId = "auth-sign-in-scroll", timeout = 8000 } = options;
+  const target = element(by.id(id));
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    try {
+      await waitFor(target).toBeVisible().withTimeout(800);
+      await target.tap();
+      return;
+    } catch {
+      // keep scrolling until the control becomes visible
+    }
+
+    try {
+      await waitFor(target).toBeVisible().whileElement(by.id(scrollId)).scroll(180, "down");
+      await target.tap();
+      return;
+    } catch {
+      // continue retry
+    }
+
+    await waitMs(180);
+  }
+
+  throw new Error(`failed to tap visible element: ${id}`);
+}
+
+async function tapVisibleByText(text, options = {}) {
+  const { scrollId = "auth-sign-in-scroll", timeout = 8000 } = options;
+  const target = element(by.text(text));
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    try {
+      await waitFor(target).toBeVisible().withTimeout(800);
+      await target.tap();
+      return true;
+    } catch {
+      // keep searching
+    }
+
+    try {
+      await waitFor(target).toBeVisible().whileElement(by.id(scrollId)).scroll(180, "down");
+      await target.tap();
+      return true;
+    } catch {
+      // continue retry
+    }
+
+    await waitMs(180);
+  }
+
+  return false;
+}
+
 async function signInWithPassword(email, password) {
   try {
     await waitForHome(5000);
@@ -138,8 +194,37 @@ async function signInWithPassword(email, password) {
   } catch {
     // keyboard action is not always available
   }
-  await waitFor(element(by.id("auth-password-login-button"))).toBeVisible().withTimeout(8000);
-  await element(by.id("auth-password-login-button")).tap();
+  try {
+    await element(by.id("auth-sign-in-scroll")).tapAtPoint({ x: 24, y: 24 });
+  } catch {
+    // best effort keyboard dismiss
+  }
+  try {
+    await element(by.id("auth-sign-in-scroll")).scrollTo("bottom");
+  } catch {
+    // continue with visibility search fallback
+  }
+  try {
+    await tapVisibleById("auth-password-login-button", { timeout: 5000 });
+  } catch {
+    const tapped =
+      (await tapVisibleByText("Sign In", { timeout: 4000 })) ||
+      (await tapVisibleByText("登录", { timeout: 4000 }));
+    if (!tapped) {
+      try {
+        await waitForHome(12000);
+        return;
+      } catch {
+        // still not home, keep surfacing the login-action failure
+      }
+      try {
+        await device.takeScreenshot(`auth-login-debug-${Date.now()}`);
+      } catch {
+        // ignore screenshot failures in helper diagnostics
+      }
+      throw new Error("failed to tap visible login action");
+    }
+  }
   await waitForHome(40000);
 }
 
@@ -186,7 +271,7 @@ async function signInGuestOrPasswordFallback() {
 
 async function signInWithPasswordIfNeeded(email, password) {
   try {
-    await waitForHome(25000);
+    await waitForHome(45000);
     return;
   } catch {
     await signInWithPassword(email, password);

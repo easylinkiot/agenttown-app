@@ -5,7 +5,7 @@ import * as Google from "expo-auth-session/providers/google";
 import Constants from "expo-constants";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -20,7 +20,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { KeyframeBackground } from "@/src/components/KeyframeBackground";
 import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
+import { AUTH_COLORS, AUTH_PLACEHOLDER_COLOR, authStyles } from "@/src/features/auth/authStyles";
 import { tx } from "@/src/i18n/translate";
 import { formatApiError } from "@/src/lib/api";
 import { useAgentTown } from "@/src/state/agenttown-context";
@@ -167,6 +169,8 @@ export default function SignInScreen() {
   const [profileName, setProfileName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
   const [showProfileSetup, setShowProfileSetup] = useState(false);
+  const passwordInputRef = useRef<TextInput>(null);
+  const otpInputRef = useRef<TextInput>(null);
   const isExpoGo = Constants.appOwnership === "expo";
   const redirectPath = useMemo(() => {
     const raw = typeof params.redirect === "string" ? params.redirect.trim() : "";
@@ -491,428 +495,369 @@ export default function SignInScreen() {
     : tr("输入手机号获取验证码", "Enter phone number to request code");
 
   return (
-    <SafeAreaView edges={APP_SAFE_AREA_EDGES} style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoid}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
-      >
-        <ScrollView testID="auth-sign-in-scroll" contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <View style={styles.brandCard}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="planet" size={24} color="#15803d" />
-          </View>
-          <Text style={styles.title}>{tr("欢迎来到 AgentTown", "Welcome to AgentTown")}</Text>
-          <Text style={styles.subtitle}>{tr("一次登录，同步 iOS / Android / Web", "Sign in once, sync iOS / Android / Web")}</Text>
-          <View style={styles.langRow}>
-            <Pressable
-              style={[styles.langBtn, language === "zh" && styles.langBtnActive]}
-              onPress={() => updateLanguage("zh")}
-            >
-              <Text style={[styles.langBtnText, language === "zh" && styles.langBtnTextActive]}>
-                {tr("中文", "Chinese")}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.langBtn, language === "en" && styles.langBtnActive]}
-              onPress={() => updateLanguage("en")}
-            >
-              <Text style={[styles.langBtnText, language === "en" && styles.langBtnTextActive]}>
-                {tr("英文", "English")}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{tr("OAuth 登录", "OAuth Sign-In")}</Text>
-
-          <Pressable
-            style={[styles.oauthBtn, styles.googleBtn]}
-            disabled={busyKey !== null || !googleRequest}
-            onPress={handleGoogleSignIn}
+    <KeyframeBackground>
+      <SafeAreaView edges={APP_SAFE_AREA_EDGES} style={authStyles.safeArea}>
+        <KeyboardAvoidingView
+          style={authStyles.keyboardAvoid}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+        >
+          <ScrollView
+            testID="auth-sign-in-scroll"
+            contentContainerStyle={authStyles.container}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            {busyKey === "google" ? (
-              <ActivityIndicator size="small" color="#111827" />
-            ) : (
-              <Ionicons name="logo-google" size={16} color="#111827" />
-            )}
-            <Text style={styles.oauthBtnText}>{tr("使用 Google 继续", "Continue with Google")}</Text>
-          </Pressable>
+            <View style={authStyles.heroCard}>
+              <View style={authStyles.heroBadge}>
+                <Text style={authStyles.heroBadgeText}>{tr("安全登录", "Secure Access")}</Text>
+              </View>
+              <View style={authStyles.heroHeader}>
+                <View style={authStyles.logoCircle}>
+                  <Ionicons name="planet" size={24} color={AUTH_COLORS.primary} />
+                </View>
+                <View style={authStyles.heroCopy}>
+                  <Text style={authStyles.title}>{tr("欢迎回来", "Welcome back")}</Text>
+                  <Text style={authStyles.subtitle}>
+                    {tr(
+                      "延续你的 AgentTown 会话、好友关系和跨端同步。",
+                      "Resume your AgentTown sessions, contacts, and cross-platform sync."
+                    )}
+                  </Text>
+                </View>
+              </View>
+              <View style={authStyles.heroPillRow}>
+                <View style={authStyles.heroPill}>
+                  <Text style={authStyles.heroPillText}>{tr("Apple / Google", "Apple / Google")}</Text>
+                </View>
+                <View style={authStyles.heroPill}>
+                  <Text style={authStyles.heroPillText}>{tr("邮箱 / 短信", "Email / SMS")}</Text>
+                </View>
+                <View style={authStyles.heroPill}>
+                  <Text style={authStyles.heroPillText}>{tr("iOS / Android / Web", "iOS / Android / Web")}</Text>
+                </View>
+              </View>
+              <View style={authStyles.langRow}>
+                <Pressable
+                  style={[authStyles.langBtn, language === "zh" && authStyles.langBtnActive]}
+                  onPress={() => updateLanguage("zh")}
+                >
+                  <Text style={[authStyles.langBtnText, language === "zh" && authStyles.langBtnTextActive]}>
+                    {tr("中文", "Chinese")}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[authStyles.langBtn, language === "en" && authStyles.langBtnActive]}
+                  onPress={() => updateLanguage("en")}
+                >
+                  <Text style={[authStyles.langBtnText, language === "en" && authStyles.langBtnTextActive]}>
+                    {tr("英文", "English")}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
 
-          <Pressable
-            style={[styles.oauthBtn, styles.appleBtn]}
-            disabled={busyKey !== null}
-            onPress={handleAppleSignIn}
-          >
-            {busyKey === "apple" ? (
-              <ActivityIndicator size="small" color="white" />
-            ) : (
-              <Ionicons name="logo-apple" size={16} color="white" />
-            )}
-            <Text style={styles.appleBtnText}>{tr("使用 Apple 继续", "Continue with Apple")}</Text>
-          </Pressable>
-        </View>
+            <View style={authStyles.card}>
+              <View style={authStyles.cardHeader}>
+                <Text style={authStyles.cardTitle}>{tr("快捷登录", "OAuth Sign-In")}</Text>
+                <Text style={authStyles.cardSubtitle}>
+                  {tr("如果设备已经信任账号，这通常是最快的登录方式。", "Fastest option when your device already trusts the provider.")}
+                </Text>
+              </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{tr("账号密码登录", "Email & Password")}</Text>
-          <TextInput
-            testID="auth-email-input"
-            style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholder={tr("电子邮件", "Email")}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          autoComplete="off"
-          textContentType="oneTimeCode"
-          importantForAutofill="no"
-          />
-          <TextInput
-            testID="auth-password-input"
-            style={styles.input}
-            value={password}
-            onChangeText={setPassword}
-            placeholder={tr("密码", "Password")}
-            secureTextEntry
-            autoCapitalize="none"
-          autoComplete="off"
-          textContentType="oneTimeCode"
-          importantForAutofill="no"
-          />
-          <View style={styles.auxActionRow}>
-            <Pressable
-              style={[styles.ghostBtn, busyKey !== null && styles.btnDisabled]}
-              disabled={busyKey !== null}
-              onPress={() => router.push("/sign-up")}
-            >
-              <Text style={styles.ghostBtnText}>{tr("注册", "Create Account")}</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.ghostBtn, busyKey !== null && styles.btnDisabled]}
-              disabled={busyKey !== null}
-              onPress={() => router.push("./forgot-password")}
-            >
-              <Text style={styles.ghostBtnText}>{tr("忘记密码？", "Forgot Password?")}</Text>
-            </Pressable>
-          </View>
-          {__DEV__ ? (
-            <Pressable
-              style={[styles.secondaryBtn, busyKey !== null && styles.btnDisabled]}
-              disabled={busyKey !== null}
-              onPress={handleFillDevAccount}
-            >
-              <Ionicons name="sparkles-outline" size={16} color="#1f2937" />
-              <Text style={styles.secondaryBtnText}>{tr("填充管理员账号（DEV）", "Fill Local Admin (DEV)")}</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            testID="auth-password-login-button"
-            style={[styles.primaryBtn, busyKey !== null && styles.btnDisabled]}
-            disabled={busyKey !== null}
-            onPress={handlePasswordSignIn}
-          >
-            {busyKey === "password" ? (
-              <ActivityIndicator size="small" color="white" />
-            ) : (
-              <Ionicons name="log-in-outline" size={16} color="white" />
-            )}
-            <Text style={styles.primaryBtnText}>{tr("登录", "Sign In")}</Text>
-          </Pressable>
-        </View>
+              <View style={styles.oauthStack}>
+                <Pressable
+                  style={[authStyles.secondaryBtn, styles.googleBtn, (busyKey !== null || !googleRequest) && authStyles.btnDisabled]}
+                  disabled={busyKey !== null || !googleRequest}
+                  onPress={handleGoogleSignIn}
+                >
+                  {busyKey === "google" ? (
+                    <ActivityIndicator size="small" color={AUTH_COLORS.text} />
+                  ) : (
+                    <Ionicons name="logo-google" size={16} color={AUTH_COLORS.text} />
+                  )}
+                  <Text style={styles.oauthBtnText}>{tr("使用 Google 继续", "Continue with Google")}</Text>
+                </Pressable>
 
-        {showProfileSetup ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>{tr("完善 Apple 账号信息", "Complete Apple Account Profile")}</Text>
-            <Text style={styles.helperText}>
-              {tr(
-                "你选择了匿名/隐藏邮箱，需先设置用户名和邮箱后继续。",
-                "You chose anonymous/hidden email. Set username and email to continue."
-              )}
-            </Text>
-            <TextInput
-              style={styles.input}
-              value={profileName}
-              onChangeText={setProfileName}
-              placeholder={tr("用户名", "Username")}
-              autoCapitalize="words"
-            autoComplete="off"
-            textContentType="oneTimeCode"
-            importantForAutofill="no"
-            />
-            <TextInput
-              style={styles.input}
-              value={profileEmail}
-              onChangeText={setProfileEmail}
-              placeholder={tr("电子邮件", "Email")}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            autoComplete="off"
-            textContentType="oneTimeCode"
-            importantForAutofill="no"
-            />
-            <Pressable
-              style={[styles.primaryBtn, busyKey !== null && styles.btnDisabled]}
-              disabled={busyKey !== null}
-              onPress={handleCompleteProfile}
-            >
-              {busyKey === "profile" ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <Ionicons name="checkmark-done-outline" size={16} color="white" />
-              )}
-              <Text style={styles.primaryBtnText}>{tr("保存并继续", "Save and Continue")}</Text>
-            </Pressable>
-          </View>
-        ) : null}
+                <Pressable
+                  style={[authStyles.primaryBtn, styles.appleBtn, busyKey !== null && authStyles.btnDisabled]}
+                  disabled={busyKey !== null}
+                  onPress={handleAppleSignIn}
+                >
+                  {busyKey === "apple" ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Ionicons name="logo-apple" size={16} color="#ffffff" />
+                  )}
+                  <Text style={authStyles.primaryBtnText}>{tr("使用 Apple 继续", "Continue with Apple")}</Text>
+                </Pressable>
+              </View>
+            </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{tr("手机号验证码", "Phone Verification")}</Text>
-          <TextInput
-            style={styles.input}
-            value={phone}
-            onChangeText={setPhone}
-            placeholder={language === "zh" ? "+86 13800138000" : "+1 415 555 0123"}
-            keyboardType="phone-pad"
-            autoCapitalize="none"
-          autoComplete="off"
-          textContentType="oneTimeCode"
-          importantForAutofill="no"
-          />
-          <Pressable
-            style={[styles.secondaryBtn, busyKey !== null && styles.btnDisabled]}
-            disabled={busyKey !== null}
-            onPress={handleSendCode}
-          >
-            {busyKey === "phone" ? (
-              <ActivityIndicator size="small" color="#1f2937" />
-            ) : (
-              <Ionicons name="chatbox-ellipses-outline" size={16} color="#1f2937" />
-            )}
-            <Text style={styles.secondaryBtnText}>{tr("发送验证码", "Send Code")}</Text>
-          </Pressable>
+            <View style={authStyles.card}>
+              <View style={authStyles.cardHeader}>
+                <Text style={authStyles.cardTitle}>{tr("邮箱和密码", "Email & Password")}</Text>
+                <Text style={authStyles.cardSubtitle}>
+                  {tr("支持系统自动填充，适合长期账号登录。", "Supports system autofill and works best for persistent accounts.")}
+                </Text>
+              </View>
 
-          <TextInput
-            style={styles.input}
-            value={otpCode}
-            onChangeText={setOtpCode}
-            placeholder={tr("6 位验证码", "6-digit code")}
-            keyboardType="number-pad"
-            autoCapitalize="none"
-          autoComplete="off"
-          textContentType="oneTimeCode"
-          importantForAutofill="no"
-          />
-          <Pressable
-            style={[styles.primaryBtn, busyKey !== null && styles.btnDisabled]}
-            disabled={busyKey !== null}
-            onPress={handleVerifyCode}
-          >
-            <Ionicons name="log-in-outline" size={16} color="white" />
-            <Text style={styles.primaryBtnText}>{tr("验证并登录", "Verify and Sign In")}</Text>
-          </Pressable>
-          <Text style={styles.helperText}>{otpTimeText}</Text>
-          {__DEV__ && devOtpHint ? (
-            <Text style={styles.devHint}>{tr("开发验证码", "DEV CODE")}: {devOtpHint}</Text>
-          ) : null}
-        </View>
+              <View style={authStyles.inputGroup}>
+                <Text style={authStyles.label}>{tr("邮箱", "Email")}</Text>
+                <TextInput
+                  testID="auth-email-input"
+                  style={authStyles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder={tr("you@example.com", "you@example.com")}
+                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordInputRef.current?.focus()}
+                />
+              </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{tr("快速体验", "Quick Start")}</Text>
-          <Pressable
-            testID="auth-guest-login-button"
-            style={[styles.secondaryBtn, busyKey !== null && styles.btnDisabled]}
-            disabled={busyKey !== null}
-            onPress={handleGuestSignIn}
-          >
-            {busyKey === "guest" ? (
-              <ActivityIndicator size="small" color="#1f2937" />
-            ) : (
-              <Ionicons name="walk-outline" size={16} color="#1f2937" />
-            )}
-            <Text style={styles.secondaryBtnText}>{tr("游客模式继续", "Continue as Guest")}</Text>
-          </Pressable>
-        </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+              <View style={authStyles.inputGroup}>
+                <Text style={authStyles.label}>{tr("密码", "Password")}</Text>
+                <TextInput
+                  ref={passwordInputRef}
+                  testID="auth-password-input"
+                  style={authStyles.input}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder={tr("输入你的账号密码", "Enter your password")}
+                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="current-password"
+                  textContentType="password"
+                  returnKeyType="done"
+                  onSubmitEditing={handlePasswordSignIn}
+                />
+              </View>
+
+              <View style={authStyles.ghostRow}>
+                <Pressable
+                  style={[authStyles.ghostBtn, busyKey !== null && authStyles.btnDisabled]}
+                  disabled={busyKey !== null}
+                  onPress={() => router.push("/sign-up")}
+                >
+                  <Text style={authStyles.ghostBtnText}>{tr("创建账号", "Create Account")}</Text>
+                </Pressable>
+                <Pressable
+                  style={[authStyles.ghostBtn, busyKey !== null && authStyles.btnDisabled]}
+                  disabled={busyKey !== null}
+                  onPress={() => router.push("./forgot-password")}
+                >
+                  <Text style={authStyles.ghostBtnText}>{tr("忘记密码？", "Forgot Password?")}</Text>
+                </Pressable>
+              </View>
+
+              {__DEV__ ? (
+                <Pressable
+                  style={[authStyles.secondaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                  disabled={busyKey !== null}
+                  onPress={handleFillDevAccount}
+                >
+                  <Ionicons name="sparkles-outline" size={16} color={AUTH_COLORS.text} />
+                  <Text style={authStyles.secondaryBtnText}>{tr("填充管理员账号（DEV）", "Fill Local Admin (DEV)")}</Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                testID="auth-password-login-button"
+                style={[authStyles.primaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                disabled={busyKey !== null}
+                onPress={handlePasswordSignIn}
+              >
+                {busyKey === "password" ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Ionicons name="log-in-outline" size={16} color="#ffffff" />
+                )}
+                <Text style={authStyles.primaryBtnText}>{tr("登录", "Sign In")}</Text>
+              </Pressable>
+            </View>
+
+            {showProfileSetup ? (
+              <View style={authStyles.card}>
+                <View style={authStyles.cardHeader}>
+                  <Text style={authStyles.cardTitle}>{tr("完善 Apple 账号信息", "Complete Apple Account Profile")}</Text>
+                  <Text style={authStyles.cardSubtitle}>
+                    {tr(
+                      "如果你选择了隐藏邮箱，需要先补全可联系信息。",
+                      "If you chose Hide My Email, complete a reachable profile before entering the app."
+                    )}
+                  </Text>
+                </View>
+
+                <View style={authStyles.inputGroup}>
+                  <Text style={authStyles.label}>{tr("用户名", "Username")}</Text>
+                  <TextInput
+                    style={authStyles.input}
+                    value={profileName}
+                    onChangeText={setProfileName}
+                    placeholder={tr("例如 Jason", "For example Jason")}
+                    placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    autoComplete="name"
+                    textContentType="name"
+                    returnKeyType="next"
+                  />
+                </View>
+
+                <View style={authStyles.inputGroup}>
+                  <Text style={authStyles.label}>{tr("可联系邮箱", "Reachable Email")}</Text>
+                  <TextInput
+                    style={authStyles.input}
+                    value={profileEmail}
+                    onChangeText={setProfileEmail}
+                    placeholder={tr("you@example.com", "you@example.com")}
+                    placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    returnKeyType="done"
+                    onSubmitEditing={handleCompleteProfile}
+                  />
+                </View>
+
+                <Pressable
+                  style={[authStyles.primaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                  disabled={busyKey !== null}
+                  onPress={handleCompleteProfile}
+                >
+                  {busyKey === "profile" ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Ionicons name="checkmark-done-outline" size={16} color="#ffffff" />
+                  )}
+                  <Text style={authStyles.primaryBtnText}>{tr("保存并继续", "Save and Continue")}</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            <View style={authStyles.card}>
+              <View style={authStyles.cardHeader}>
+                <Text style={authStyles.cardTitle}>{tr("短信验证码", "SMS Verification")}</Text>
+                <Text style={authStyles.cardSubtitle}>
+                  {tr("作为备用登录方式，适合临时回到账号。", "Alternative sign-in method when you need quick account access.")}
+                </Text>
+              </View>
+
+              <View style={authStyles.inputGroup}>
+                <Text style={authStyles.label}>{tr("手机号", "Phone Number")}</Text>
+                <TextInput
+                  style={authStyles.input}
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder={language === "zh" ? "+86 13800138000" : "+1 415 555 0123"}
+                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                  keyboardType="phone-pad"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="tel"
+                  textContentType="telephoneNumber"
+                  returnKeyType="next"
+                  onSubmitEditing={() => otpInputRef.current?.focus()}
+                />
+              </View>
+
+              <Pressable
+                style={[authStyles.secondaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                disabled={busyKey !== null}
+                onPress={handleSendCode}
+              >
+                {busyKey === "phone" ? (
+                  <ActivityIndicator size="small" color={AUTH_COLORS.text} />
+                ) : (
+                  <Ionicons name="chatbox-ellipses-outline" size={16} color={AUTH_COLORS.text} />
+                )}
+                <Text style={authStyles.secondaryBtnText}>{tr("发送验证码", "Send Code")}</Text>
+              </Pressable>
+
+              <View style={authStyles.inputGroup}>
+                <Text style={authStyles.label}>{tr("验证码", "Verification Code")}</Text>
+                <TextInput
+                  ref={otpInputRef}
+                  style={authStyles.input}
+                  value={otpCode}
+                  onChangeText={setOtpCode}
+                  placeholder={tr("6 位验证码", "6-digit code")}
+                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                  keyboardType="number-pad"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="one-time-code"
+                  textContentType="oneTimeCode"
+                  returnKeyType="done"
+                  onSubmitEditing={handleVerifyCode}
+                />
+              </View>
+
+              <Pressable
+                style={[authStyles.primaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                disabled={busyKey !== null}
+                onPress={handleVerifyCode}
+              >
+                <Ionicons name="log-in-outline" size={16} color="#ffffff" />
+                <Text style={authStyles.primaryBtnText}>{tr("验证并登录", "Verify and Sign In")}</Text>
+              </Pressable>
+              <Text style={authStyles.helperText}>{otpTimeText}</Text>
+              {__DEV__ && devOtpHint ? (
+                <Text style={authStyles.devHint}>{tr("开发验证码", "DEV CODE")}: {devOtpHint}</Text>
+              ) : null}
+            </View>
+
+            <View style={authStyles.card}>
+              <View style={authStyles.cardHeader}>
+                <Text style={authStyles.cardTitle}>{tr("快速体验", "Quick Start")}</Text>
+                <Text style={authStyles.cardSubtitle}>
+                  {tr("先进入产品体验，再决定是否绑定正式账号。", "Enter the product first, then decide whether to bind a full account.")}
+                </Text>
+              </View>
+              <Pressable
+                testID="auth-guest-login-button"
+                style={[authStyles.secondaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                disabled={busyKey !== null}
+                onPress={handleGuestSignIn}
+              >
+                {busyKey === "guest" ? (
+                  <ActivityIndicator size="small" color={AUTH_COLORS.text} />
+                ) : (
+                  <Ionicons name="walk-outline" size={16} color={AUTH_COLORS.text} />
+                )}
+                <Text style={authStyles.secondaryBtnText}>{tr("游客模式继续", "Continue as Guest")}</Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </KeyframeBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#eff6ff",
-  },
-  keyboardAvoid: {
-    flex: 1,
-  },
-  container: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 28,
-    gap: 12,
-  },
-  brandCard: {
-    borderRadius: 18,
-    padding: 18,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#dbeafe",
-    alignItems: "center",
-    gap: 6,
-  },
-  logoCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#dcfce7",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#0f172a",
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#475569",
-  },
-  langRow: {
-    marginTop: 8,
-    flexDirection: "row",
-    gap: 8,
-  },
-  langBtn: {
-    paddingHorizontal: 10,
-    minHeight: 30,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#f8fafc",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  langBtnActive: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb",
-  },
-  langBtnText: {
-    color: "#334155",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  langBtnTextActive: {
-    color: "white",
-  },
-  card: {
-    borderRadius: 16,
-    padding: 14,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
+  oauthStack: {
     gap: 10,
   },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  oauthBtn: {
-    minHeight: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
   googleBtn: {
-    borderColor: "#d1d5db",
-    backgroundColor: "#f9fafb",
+    backgroundColor: "rgba(15, 23, 42, 0.92)",
   },
   appleBtn: {
-    borderColor: "#111827",
-    backgroundColor: "#111827",
+    backgroundColor: "#1d4ed8",
   },
   oauthBtnText: {
-    color: "#111827",
+    color: AUTH_COLORS.text,
     fontSize: 14,
     fontWeight: "700",
-  },
-  appleBtnText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  input: {
-    minHeight: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    paddingHorizontal: 12,
-    backgroundColor: "white",
-    fontSize: 14,
-    color: "#111827",
-  },
-  primaryBtn: {
-    minHeight: 44,
-    borderRadius: 12,
-    backgroundColor: "#2563eb",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  primaryBtnText: {
-    color: "white",
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  secondaryBtn: {
-    minHeight: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    backgroundColor: "#f8fafc",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  secondaryBtnText: {
-    color: "#1f2937",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  auxActionRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-  },
-  ghostBtn: {
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  ghostBtnText: {
-    color: "#2563eb",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  helperText: {
-    fontSize: 12,
-    color: "#64748b",
-  },
-  devHint: {
-    fontSize: 12,
-    color: "#16a34a",
-    fontWeight: "700",
-  },
-  btnDisabled: {
-    opacity: 0.55,
   },
 });

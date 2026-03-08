@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,7 +15,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { KeyframeBackground } from "@/src/components/KeyframeBackground";
 import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
+import { AUTH_COLORS, AUTH_PLACEHOLDER_COLOR, authStyles } from "@/src/features/auth/authStyles";
 import { tx } from "@/src/i18n/translate";
 import { useAgentTown } from "@/src/state/agenttown-context";
 import { useAuth } from "@/src/state/auth-context";
@@ -26,7 +30,7 @@ const RESEND_DEFAULT_SECONDS = 60;
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
-  const { language } = useAgentTown();
+  const { language, updateLanguage } = useAgentTown();
   const { requestPasswordResetCode, verifyPasswordResetCode, resetPassword } = useAuth();
   const tr = (zh: string, en: string) => tx(language, zh, en);
 
@@ -187,308 +191,267 @@ export default function ForgotPasswordScreen() {
   };
 
   return (
-    <SafeAreaView edges={APP_SAFE_AREA_EDGES} style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.brandCard}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="key" size={22} color="#2563eb" />
-          </View>
-          <Text style={styles.title}>{tr("找回密码", "Forgot Password")}</Text>
-          <Text style={styles.subtitle}>{tr("按步骤验证并重置密码", "Verify and reset your password")}</Text>
-          <Text style={styles.stepText}>{stepLabel}</Text>
-        </View>
+    <KeyframeBackground>
+      <SafeAreaView edges={APP_SAFE_AREA_EDGES} style={authStyles.safeArea}>
+        <KeyboardAvoidingView
+          style={authStyles.keyboardAvoid}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+        >
+          <ScrollView
+            contentContainerStyle={authStyles.container}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={authStyles.heroCard}>
+              <View style={authStyles.heroBadge}>
+                <Text style={authStyles.heroBadgeText}>{tr("恢复访问", "Recover access")}</Text>
+              </View>
+              <View style={authStyles.heroHeader}>
+                <View style={authStyles.logoCircle}>
+                  <Ionicons name="key" size={22} color={AUTH_COLORS.primary} />
+                </View>
+                <View style={authStyles.heroCopy}>
+                  <Text style={authStyles.title}>{tr("找回密码", "Forgot Password")}</Text>
+                  <Text style={authStyles.subtitle}>
+                    {tr("通过邮箱验证身份，重新设置你的登录密码。", "Verify your email identity and set a new password safely.")}
+                  </Text>
+                </View>
+              </View>
+              <View style={authStyles.heroPillRow}>
+                <View style={authStyles.heroPill}>
+                  <Text style={authStyles.heroPillText}>{stepLabel}</Text>
+                </View>
+                <View style={authStyles.heroPill}>
+                  <Text style={authStyles.heroPillText}>{tr("邮箱验证码", "Email verification")}</Text>
+                </View>
+              </View>
+              <View style={authStyles.langRow}>
+                <Pressable
+                  style={[authStyles.langBtn, language === "zh" && authStyles.langBtnActive]}
+                  onPress={() => updateLanguage("zh")}
+                >
+                  <Text style={[authStyles.langBtnText, language === "zh" && authStyles.langBtnTextActive]}>
+                    {tr("中文", "Chinese")}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[authStyles.langBtn, language === "en" && authStyles.langBtnActive]}
+                  onPress={() => updateLanguage("en")}
+                >
+                  <Text style={[authStyles.langBtnText, language === "en" && authStyles.langBtnTextActive]}>
+                    {tr("英文", "English")}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
 
-        <View style={styles.card}>
+            <View style={authStyles.card}>
           {step === "identify" ? (
             <>
-              <Text style={styles.cardTitle}>{tr("验证账号", "Account Verification")}</Text>
-              <TextInput
-                style={[styles.input, submitted && emailInvalid && styles.inputError]}
-                value={email}
-                onChangeText={setEmail}
-                placeholder={tr("电子邮件", "Email")}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              autoComplete="off"
-              textContentType="oneTimeCode"
-              importantForAutofill="no"
-              />
-              <Text style={styles.helperText}>
+              <View style={authStyles.cardHeader}>
+                <Text style={authStyles.cardTitle}>{tr("验证账号", "Account Verification")}</Text>
+                <Text style={authStyles.cardSubtitle}>
+                  {tr("先确认需要重置密码的邮箱。", "Confirm the email address for the account you want to recover.")}
+                </Text>
+              </View>
+              <View style={authStyles.inputGroup}>
+                <Text style={authStyles.label}>{tr("邮箱", "Email")}</Text>
+                <TextInput
+                  style={[authStyles.input, submitted && emailInvalid && styles.inputError]}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder={tr("you@example.com", "you@example.com")}
+                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  returnKeyType="done"
+                  onSubmitEditing={handleSendCode}
+                />
+              </View>
+              <Text style={authStyles.helperText}>
                 {tr("请输入注册时使用的邮箱。", "Enter the email used for registration.")}
               </Text>
-              <Pressable style={[styles.primaryBtn, sendCodeDisabled && styles.btnDisabled]} disabled={sendCodeDisabled} onPress={handleSendCode}>
+              <Pressable style={[authStyles.primaryBtn, sendCodeDisabled && authStyles.btnDisabled]} disabled={sendCodeDisabled} onPress={handleSendCode}>
                 {busyKey === "send" ? (
-                  <ActivityIndicator size="small" color="white" />
+                  <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Ionicons name="mail-open-outline" size={16} color="white" />
+                  <Ionicons name="mail-open-outline" size={16} color="#ffffff" />
                 )}
-                <Text style={styles.primaryBtnText}>{tr("发送验证码", "Send Code")}</Text>
+                <Text style={authStyles.primaryBtnText}>{tr("发送验证码", "Send Code")}</Text>
               </Pressable>
             </>
           ) : null}
 
           {step === "verify" ? (
             <>
-              <Text style={styles.cardTitle}>{tr("输入验证码", "Enter Verification Code")}</Text>
-              <TextInput
-                style={[styles.input, submitted && emailInvalid && styles.inputError]}
-                value={email}
-                onChangeText={setEmail}
-                placeholder={tr("电子邮件", "Email")}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              autoComplete="off"
-              textContentType="oneTimeCode"
-              importantForAutofill="no"
-              />
-              <TextInput
-                style={[styles.input, submitted && codeInvalid && styles.inputError]}
-                value={code}
-                onChangeText={setCode}
-                placeholder={tr("验证码", "Verification Code")}
-                autoCapitalize="none"
-              autoComplete="off"
-              textContentType="oneTimeCode"
-              importantForAutofill="no"
-              />
+              <View style={authStyles.cardHeader}>
+                <Text style={authStyles.cardTitle}>{tr("输入验证码", "Enter Verification Code")}</Text>
+                <Text style={authStyles.cardSubtitle}>
+                  {tr("收到邮件验证码后，在这里完成校验。", "Enter the email verification code to unlock password reset.")}
+                </Text>
+              </View>
+              <View style={authStyles.inputGroup}>
+                <Text style={authStyles.label}>{tr("邮箱", "Email")}</Text>
+                <TextInput
+                  style={[authStyles.input, submitted && emailInvalid && styles.inputError]}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder={tr("you@example.com", "you@example.com")}
+                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                />
+              </View>
+              <View style={authStyles.inputGroup}>
+                <Text style={authStyles.label}>{tr("验证码", "Verification Code")}</Text>
+                <TextInput
+                  style={[authStyles.input, submitted && codeInvalid && styles.inputError]}
+                  value={code}
+                  onChangeText={setCode}
+                  placeholder={tr("输入邮件里的验证码", "Enter the code from your email")}
+                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="one-time-code"
+                  textContentType="oneTimeCode"
+                  returnKeyType="done"
+                  onSubmitEditing={handleVerifyCode}
+                />
+              </View>
               <Pressable
-                style={[styles.primaryBtn, verifyCodeDisabled && styles.btnDisabled]}
+                style={[authStyles.primaryBtn, verifyCodeDisabled && authStyles.btnDisabled]}
                 disabled={verifyCodeDisabled}
                 onPress={handleVerifyCode}
               >
                 {busyKey === "verify" ? (
-                  <ActivityIndicator size="small" color="white" />
+                  <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Ionicons name="shield-checkmark-outline" size={16} color="white" />
+                  <Ionicons name="shield-checkmark-outline" size={16} color="#ffffff" />
                 )}
-                <Text style={styles.primaryBtnText}>{tr("校验验证码", "Verify Code")}</Text>
+                <Text style={authStyles.primaryBtnText}>{tr("校验验证码", "Verify Code")}</Text>
               </Pressable>
-              <Pressable style={[styles.secondaryBtn, sendCodeDisabled && styles.btnDisabled]} disabled={sendCodeDisabled} onPress={handleSendCode}>
-                <Ionicons name="refresh-outline" size={16} color="#1f2937" />
-                <Text style={styles.secondaryBtnText}>
+              <Pressable style={[authStyles.secondaryBtn, sendCodeDisabled && authStyles.btnDisabled]} disabled={sendCodeDisabled} onPress={handleSendCode}>
+                <Ionicons name="refresh-outline" size={16} color={AUTH_COLORS.text} />
+                <Text style={authStyles.secondaryBtnText}>
                   {resendBlocked
                     ? tr(`重新发送（${resendCountdown}s）`, `Resend (${resendCountdown}s)`)
                     : tr("重新发送验证码", "Resend Code")}
                 </Text>
               </Pressable>
               {codeExpiresAt ? (
-                <Text style={styles.helperText}>
+                <Text style={authStyles.helperText}>
                   {tr("验证码有效期至", "Code expires at")} {new Date(codeExpiresAt).toLocaleString()}
                 </Text>
               ) : null}
               {__DEV__ && devCodeHint ? (
-                <Text style={styles.devHint}>{tr("开发验证码", "DEV CODE")}: {devCodeHint}</Text>
+                <Text style={authStyles.devHint}>{tr("开发验证码", "DEV CODE")}: {devCodeHint}</Text>
               ) : null}
               <Pressable
-                style={[styles.ghostBtn, busyKey !== null && styles.btnDisabled]}
+                style={[authStyles.ghostBtn, busyKey !== null && authStyles.btnDisabled]}
                 disabled={busyKey !== null}
                 onPress={() => setStep("identify")}
               >
-                <Text style={styles.ghostBtnText}>{tr("返回上一步", "Back")}</Text>
+                <Text style={authStyles.ghostBtnText}>{tr("返回上一步", "Back")}</Text>
               </Pressable>
             </>
           ) : null}
 
           {step === "reset" ? (
             <>
-              <Text style={styles.cardTitle}>{tr("设置新密码", "Set New Password")}</Text>
-              <TextInput
-                style={[styles.input, submitted && passwordInvalid && styles.inputError]}
-                value={password}
-                onChangeText={setPassword}
-                placeholder={tr("新密码", "New Password")}
-                secureTextEntry
-                autoCapitalize="none"
-              autoComplete="off"
-              textContentType="oneTimeCode"
-              importantForAutofill="no"
-              />
-              <TextInput
-                style={[styles.input, submitted && confirmPasswordInvalid && styles.inputError]}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                placeholder={tr("确认新密码", "Confirm New Password")}
-                secureTextEntry
-                autoCapitalize="none"
-              autoComplete="off"
-              textContentType="oneTimeCode"
-              importantForAutofill="no"
-              />
-              <Text style={styles.helperText}>{tr("密码至少 8 位", "Password must be at least 8 characters")}</Text>
+              <View style={authStyles.cardHeader}>
+                <Text style={authStyles.cardTitle}>{tr("设置新密码", "Set New Password")}</Text>
+                <Text style={authStyles.cardSubtitle}>
+                  {tr("创建一个新的登录密码，完成后将直接回到登录页。", "Create a new sign-in password. When finished, return to the sign-in page.")}
+                </Text>
+              </View>
+              <View style={authStyles.inputGroup}>
+                <Text style={authStyles.label}>{tr("新密码", "New Password")}</Text>
+                <TextInput
+                  style={[authStyles.input, submitted && passwordInvalid && styles.inputError]}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder={tr("至少 8 位", "At least 8 characters")}
+                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="new-password"
+                  textContentType="newPassword"
+                />
+              </View>
+              <View style={authStyles.inputGroup}>
+                <Text style={authStyles.label}>{tr("确认新密码", "Confirm New Password")}</Text>
+                <TextInput
+                  style={[authStyles.input, submitted && confirmPasswordInvalid && styles.inputError]}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder={tr("再次输入新密码", "Enter the new password again")}
+                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="new-password"
+                  textContentType="newPassword"
+                  returnKeyType="done"
+                  onSubmitEditing={handleResetPassword}
+                />
+              </View>
+              <Text style={authStyles.helperText}>{tr("密码至少 8 位", "Password must be at least 8 characters")}</Text>
               {resetTokenExpiresAt ? (
-                <Text style={styles.helperText}>
+                <Text style={authStyles.helperText}>
                   {tr("重置会话有效期至", "Reset token valid until")} {new Date(resetTokenExpiresAt).toLocaleString()}
                 </Text>
               ) : null}
               <Pressable
-                style={[styles.primaryBtn, resetDisabled && styles.btnDisabled]}
+                style={[authStyles.primaryBtn, resetDisabled && authStyles.btnDisabled]}
                 disabled={resetDisabled}
                 onPress={handleResetPassword}
               >
                 {busyKey === "reset" ? (
-                  <ActivityIndicator size="small" color="white" />
+                  <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Ionicons name="key-outline" size={16} color="white" />
+                  <Ionicons name="key-outline" size={16} color="#ffffff" />
                 )}
-                <Text style={styles.primaryBtnText}>{tr("确认重置", "Reset Password")}</Text>
+                <Text style={authStyles.primaryBtnText}>{tr("确认重置", "Reset Password")}</Text>
               </Pressable>
             </>
           ) : null}
 
           {step === "done" ? (
             <>
-              <View style={styles.doneIconWrap}>
+              <View style={authStyles.doneIconWrap}>
                 <Ionicons name="checkmark-circle" size={30} color="#16a34a" />
               </View>
-              <Text style={styles.doneTitle}>{tr("密码已重置", "Password Updated")}</Text>
-              <Text style={styles.helperText}>{tr("请返回登录页使用新密码登录。", "Return to sign in with your new password.")}</Text>
-              <Pressable style={styles.primaryBtn} onPress={goToSignIn}>
-                <Ionicons name="log-in-outline" size={16} color="white" />
-                <Text style={styles.primaryBtnText}>{tr("返回登录", "Back to Sign In")}</Text>
+              <Text style={authStyles.doneTitle}>{tr("密码已重置", "Password Updated")}</Text>
+              <Text style={authStyles.helperText}>{tr("请返回登录页使用新密码登录。", "Return to sign in with your new password.")}</Text>
+              <Pressable style={authStyles.primaryBtn} onPress={goToSignIn}>
+                <Ionicons name="log-in-outline" size={16} color="#ffffff" />
+                <Text style={authStyles.primaryBtnText}>{tr("返回登录", "Back to Sign In")}</Text>
               </Pressable>
             </>
           ) : null}
 
-          <Pressable style={[styles.secondaryBtn, busyKey !== null && styles.btnDisabled]} disabled={busyKey !== null} onPress={goToSignIn}>
-            <Ionicons name="arrow-back-outline" size={16} color="#1f2937" />
-            <Text style={styles.secondaryBtnText}>{tr("取消并返回登录", "Cancel and Return")}</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+              <Pressable style={[authStyles.secondaryBtn, busyKey !== null && authStyles.btnDisabled]} disabled={busyKey !== null} onPress={goToSignIn}>
+                <Ionicons name="arrow-back-outline" size={16} color={AUTH_COLORS.text} />
+                <Text style={authStyles.secondaryBtnText}>{tr("取消并返回登录", "Cancel and Return")}</Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </KeyframeBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#eff6ff",
-  },
-  container: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 28,
-    gap: 12,
-  },
-  brandCard: {
-    borderRadius: 18,
-    padding: 18,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#dbeafe",
-    alignItems: "center",
-    gap: 6,
-  },
-  logoCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#dbeafe",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#0f172a",
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#475569",
-  },
-  stepText: {
-    marginTop: 2,
-    color: "#1d4ed8",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  card: {
-    borderRadius: 16,
-    padding: 14,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    gap: 10,
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  input: {
-    minHeight: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    paddingHorizontal: 12,
-    backgroundColor: "white",
-    fontSize: 14,
-    color: "#111827",
-  },
   inputError: {
-    borderColor: "#ef4444",
-  },
-  helperText: {
-    fontSize: 12,
-    color: "#64748b",
-  },
-  primaryBtn: {
-    minHeight: 44,
-    borderRadius: 12,
-    backgroundColor: "#2563eb",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  primaryBtnText: {
-    color: "white",
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  secondaryBtn: {
-    minHeight: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    backgroundColor: "#f8fafc",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  secondaryBtnText: {
-    color: "#1f2937",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  ghostBtn: {
-    minHeight: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ghostBtnText: {
-    color: "#2563eb",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  doneIconWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 4,
-  },
-  doneTitle: {
-    textAlign: "center",
-    color: "#111827",
-    fontWeight: "800",
-    fontSize: 18,
-  },
-  devHint: {
-    fontSize: 12,
-    color: "#16a34a",
-    fontWeight: "700",
-  },
-  btnDisabled: {
-    opacity: 0.55,
+    borderColor: AUTH_COLORS.danger,
   },
 });
