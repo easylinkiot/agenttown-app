@@ -1857,20 +1857,82 @@ export function subscribeRealtime(
   }
 
   const query = params.toString() ? `?${params.toString()}` : "";
-  const socket = new WebSocket(`${getRealtimeBaseUrl()}/v1/realtime/ws${query}`);
+  const url = `${getRealtimeBaseUrl()}/v1/realtime/ws${query}`;
+  const reconnectDelaysMs = [500, 1000, 2000, 5000] as const;
 
-  socket.onmessage = (event) => {
-    if (!event?.data) return;
-    try {
-      const parsed = JSON.parse(String(event.data)) as RealtimeEvent;
-      onEvent(parsed);
-    } catch {
-      // Ignore malformed event payloads.
-    }
+  let stopped = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let socket: WebSocket | null = null;
+  let reconnectAttempt = 0;
+
+  const clearReconnectTimer = () => {
+    if (!reconnectTimer) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
   };
 
+  const cleanupSocket = (target: WebSocket | null) => {
+    if (!target) return;
+    target.onopen = null;
+    target.onmessage = null;
+    target.onerror = null;
+    target.onclose = null;
+  };
+
+  const scheduleReconnect = () => {
+    if (stopped || reconnectTimer) return;
+    const delay = reconnectDelaysMs[Math.min(reconnectAttempt, reconnectDelaysMs.length - 1)];
+    reconnectAttempt += 1;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  };
+
+  const connect = () => {
+    if (stopped) return;
+
+    const nextSocket = new WebSocket(url);
+    socket = nextSocket;
+
+    nextSocket.onopen = () => {
+      reconnectAttempt = 0;
+      clearReconnectTimer();
+    };
+
+    nextSocket.onmessage = (event) => {
+      if (!event?.data) return;
+      try {
+        const parsed = JSON.parse(String(event.data)) as RealtimeEvent;
+        onEvent(parsed);
+      } catch {
+        // Ignore malformed event payloads.
+      }
+    };
+
+    nextSocket.onerror = () => {
+      if (nextSocket.readyState === WebSocket.OPEN || nextSocket.readyState === WebSocket.CONNECTING) {
+        nextSocket.close();
+      }
+    };
+
+    nextSocket.onclose = () => {
+      if (socket === nextSocket) {
+        socket = null;
+      }
+      cleanupSocket(nextSocket);
+      scheduleReconnect();
+    };
+  };
+
+  connect();
+
   return () => {
-    socket.onmessage = null;
-    socket.close();
+    stopped = true;
+    clearReconnectTimer();
+    const active = socket;
+    socket = null;
+    cleanupSocket(active);
+    active?.close();
   };
 }
