@@ -1903,6 +1903,7 @@ export default function ChatDetailScreen() {
 
   useEffect(() => {
     if (!chatId || shouldRouteToAiChat) return;
+    if (typeof latestMessageSeqNo !== "number" || !Number.isFinite(latestMessageSeqNo)) return;
     void markThreadRead(chatId, latestMessageSeqNo);
   }, [chatId, latestMessageSeqNo, markThreadRead, shouldRouteToAiChat]);
 

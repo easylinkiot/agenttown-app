@@ -19,6 +19,7 @@ import {
   listNPCs,
   listSkillCatalog,
   listTasks,
+  markThreadRead as markThreadReadApi,
   listThreadMembers,
   mapATSessionToThread,
   subscribeRealtime,
@@ -63,6 +64,7 @@ jest.mock("@/src/lib/api", () => ({
   listNPCs: jest.fn(),
   listSkillCatalog: jest.fn(),
   listTasks: jest.fn(),
+  markThreadRead: jest.fn(),
   listThreadMembers: jest.fn(),
   listThreadMessages: jest.fn(),
   patchTask: jest.fn(),
@@ -95,6 +97,7 @@ const mockedListMiniAppTemplates = listMiniAppTemplates as jest.Mock;
 const mockedListNPCs = listNPCs as jest.Mock;
 const mockedFetchBootstrap = fetchBootstrap as jest.Mock;
 const mockedListThreadMembers = listThreadMembers as jest.Mock;
+const mockedMarkThreadReadApi = markThreadReadApi as jest.Mock;
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return <AgentTownProvider>{children}</AgentTownProvider>;
@@ -142,6 +145,12 @@ describe("AgentTown friend regression", () => {
     mockedListMiniAppTemplates.mockResolvedValue([]);
     mockedListNPCs.mockResolvedValue([]);
     mockedListThreadMembers.mockResolvedValue([]);
+    mockedMarkThreadReadApi.mockResolvedValue({
+      ok: true,
+      threadId: "thread_1",
+      unreadCount: 0,
+      mentionUnreadCount: 0,
+    });
     mockedAddThreadMember.mockReset();
   });
 
@@ -479,6 +488,25 @@ describe("AgentTown friend regression", () => {
       avatar: "https://example.com/friend.png",
       targetType: "user",
       targetId: "u_friend",
+    });
+  });
+
+  it("de-duplicates identical markThreadRead requests for the same thread sequence", async () => {
+    const { result } = renderHook(() => useAgentTown(), { wrapper });
+    await waitFor(() => expect(result.current.bootstrapReady).toBe(true));
+
+    await act(async () => {
+      await result.current.markThreadRead("thread_1", 12);
+      await result.current.markThreadRead("thread_1", 12);
+      await result.current.markThreadRead("thread_1", 13);
+    });
+
+    expect(mockedMarkThreadReadApi).toHaveBeenCalledTimes(2);
+    expect(mockedMarkThreadReadApi).toHaveBeenNthCalledWith(1, "thread_1", {
+      lastReadSeqNo: 12,
+    });
+    expect(mockedMarkThreadReadApi).toHaveBeenNthCalledWith(2, "thread_1", {
+      lastReadSeqNo: 13,
     });
   });
 });

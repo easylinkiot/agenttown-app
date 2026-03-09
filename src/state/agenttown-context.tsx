@@ -658,6 +658,13 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const notificationSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const threadLanguageSyncSignatureRef = useRef("");
+  const threadReadSyncStateRef = useRef<
+    Record<string, { lastAckedSeqNo?: number; inflightSeqNo?: number }>
+  >({});
+
+  useEffect(() => {
+    threadReadSyncStateRef.current = {};
+  }, [userID]);
 
   const persistThreadLanguageMap = useCallback(
     async (next: Record<string, ThreadDisplayLanguage>) => {
@@ -682,6 +689,50 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     },
     [isSignedIn, userID]
   );
+
+  const markThreadRead = useCallback(async (threadId: string, lastReadSeqNo?: number) => {
+    const normalizedThreadID = threadId.trim();
+    if (!normalizedThreadID) return;
+    if (typeof lastReadSeqNo !== "number" || !Number.isFinite(lastReadSeqNo)) {
+      return;
+    }
+
+    const nextSeqNo = Math.trunc(lastReadSeqNo);
+    const syncState = threadReadSyncStateRef.current[normalizedThreadID] || {};
+    if (typeof syncState.lastAckedSeqNo === "number" && syncState.lastAckedSeqNo >= nextSeqNo) {
+      return;
+    }
+    if (syncState.inflightSeqNo === nextSeqNo) {
+      return;
+    }
+
+    threadReadSyncStateRef.current[normalizedThreadID] = {
+      ...syncState,
+      inflightSeqNo: nextSeqNo,
+    };
+
+    try {
+      const response = await markThreadReadApi(normalizedThreadID, {
+        lastReadSeqNo: nextSeqNo,
+      });
+      threadReadSyncStateRef.current[normalizedThreadID] = {
+        lastAckedSeqNo: nextSeqNo,
+      };
+      setChatThreads((prev) =>
+        updateThreadUnreadState(prev, normalizedThreadID, {
+          unreadCount: typeof response.unreadCount === "number" ? response.unreadCount : 0,
+          highlight: Boolean((response.mentionUnreadCount || 0) > 0),
+        })
+      );
+    } catch {
+      const current = threadReadSyncStateRef.current[normalizedThreadID];
+      if (!current) return;
+      threadReadSyncStateRef.current[normalizedThreadID] = {
+        lastAckedSeqNo: current.lastAckedSeqNo,
+      };
+      // Ignore read sync failure.
+    }
+  }, []);
 
   const patchThreadLanguageMap = useCallback(
     (
@@ -1666,22 +1717,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
           return null;
         }
       },
-      markThreadRead: async (threadId, lastReadSeqNo) => {
-        if (!threadId) return;
-        try {
-          const response = await markThreadReadApi(threadId, {
-            lastReadSeqNo,
-          });
-          setChatThreads((prev) =>
-            updateThreadUnreadState(prev, threadId, {
-              unreadCount: typeof response.unreadCount === "number" ? response.unreadCount : 0,
-              highlight: Boolean((response.mentionUnreadCount || 0) > 0),
-            })
-          );
-        } catch {
-          // Ignore read sync failure.
-        }
-      },
+      markThreadRead,
       createFriend: async (input) => {
         const created = await createFriendApi(input);
         if (created.mode === "friend" && created.friend) {
@@ -2242,6 +2278,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     miniAppGeneration,
     miniApps,
     myHouseType,
+    markThreadRead,
     patchThreadLanguageMap,
     persistFriendAliases,
     refreshAll,
