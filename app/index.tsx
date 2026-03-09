@@ -1,8 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -27,6 +26,7 @@ import { MiniAppDock } from "@/src/components/MiniAppDock";
 import { NpcListItem } from "@/src/components/NpcListItem";
 import { LoadingSkeleton, StateBanner } from "@/src/components/StateBlocks";
 import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
+import { subscribePendingFriendQrPayload } from "@/src/features/friends/friend-qr-scanner-bridge";
 import { getCachedAgentSessions, preloadAgentSessions } from "@/src/features/chat/agent-sessions-cache";
 import { tx } from "@/src/i18n/translate";
 import {
@@ -106,7 +106,7 @@ export default function HomeScreen() {
     removeFriend,
     refreshAll,
   } = useAgentTown();
-  const tr = (zh: string, en: string) => tx(language, zh, en);
+  const tr = useCallback((zh: string, en: string) => tx(language, zh, en), [language]);
   const profileAvatar = user?.avatar || botConfig.avatar;
 
   const [peopleModal, setPeopleModal] = useState(false);
@@ -121,9 +121,10 @@ export default function HomeScreen() {
   const [scanToken, setScanToken] = useState("");
   const [friendActionBusy, setFriendActionBusy] = useState(false);
   const [friendActionStatus, setFriendActionStatus] = useState<string | null>(null);
-  const [scannerVisible, setScannerVisible] = useState(false);
-  const [scannerLocked, setScannerLocked] = useState(false);
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [pendingScannedPayload, setPendingScannedPayload] = useState("");
+  const scannerRouteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoreFriendModalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingScanSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [groupName, setGroupName] = useState("");
   const [groupAvatar, setGroupAvatar] = useState("");
@@ -329,15 +330,38 @@ export default function HomeScreen() {
   }, [friendModal, isSignedIn, tr, user?.id]);
 
   useEffect(() => {
-    if (!friendModal) {
+    if (!friendModal && !pendingScannedPayload) {
       setFriendQuery("");
       setScanToken("");
       setFriendActionStatus(null);
       setFriendActionBusy(false);
-      setScannerVisible(false);
-      setScannerLocked(false);
     }
-  }, [friendModal]);
+  }, [friendModal, pendingScannedPayload]);
+
+  useEffect(() => {
+    const unsubscribe = subscribePendingFriendQrPayload((payload) => {
+      setPendingScannedPayload(typeof payload === "string" ? payload : "");
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scannerRouteTimerRef.current) {
+        clearTimeout(scannerRouteTimerRef.current);
+        scannerRouteTimerRef.current = null;
+      }
+      if (restoreFriendModalTimerRef.current) {
+        clearTimeout(restoreFriendModalTimerRef.current);
+        restoreFriendModalTimerRef.current = null;
+      }
+      if (pendingScanSubmitTimerRef.current) {
+        clearTimeout(pendingScanSubmitTimerRef.current);
+        pendingScanSubmitTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isSignedIn) return;
@@ -592,38 +616,48 @@ export default function HomeScreen() {
     }
   };
 
-  const handleScanByToken = async (rawInput = scanToken) => {
-    const token = extractFriendQrToken(rawInput);
-    if (!token || friendActionBusy) return;
-    setUiError(null);
-    setFriendActionBusy(true);
-    setFriendActionStatus(null);
-    try {
-      const created = await scanFriendQR({ token });
-      await refreshAll();
-      setScanToken("");
-      setFriendActionStatus(
-        created?.mode === "friend"
-          ? tr("二维码添加成功，已进入好友列表。", "Friend added from QR successfully.")
-          : tr("二维码已提交，等待对方接受。", "QR invite sent. Waiting for acceptance.")
-      );
-    } catch (err) {
-      const pendingCode = err instanceof ApiError ? (err.code || "").toLowerCase() : "";
-      const pendingMsg = err instanceof ApiError ? (err.message || "").toLowerCase() : "";
-      if (pendingCode.includes("request_pending") || pendingMsg.includes("already pending")) {
+  const handleScanByToken = useCallback(
+    async (rawInput = scanToken) => {
+      const token = extractFriendQrToken(rawInput);
+      if (!token || friendActionBusy) return;
+      setUiError(null);
+      setFriendActionBusy(true);
+      setFriendActionStatus(null);
+      try {
+        const created = await scanFriendQR({ token });
+        await refreshAll();
+        setScanToken("");
         setFriendActionStatus(
-          tr(
-            "邀请已发送，等待对方接受后会出现在好友列表。",
-            "Invite already pending. It will appear after acceptance."
-          )
+          created?.mode === "friend"
+            ? tr("二维码添加成功，已进入好友列表。", "Friend added from QR successfully.")
+            : tr("二维码已提交，等待对方接受。", "QR invite sent. Waiting for acceptance.")
         );
-      } else {
-        setUiError(formatApiError(err));
+      } catch (err) {
+        const pendingCode = err instanceof ApiError ? (err.code || "").toLowerCase() : "";
+        const pendingMsg = err instanceof ApiError ? (err.message || "").toLowerCase() : "";
+        if (pendingCode.includes("request_pending") || pendingMsg.includes("already pending")) {
+          setFriendActionStatus(
+            tr(
+              "邀请已发送，等待对方接受后会出现在好友列表。",
+              "Invite already pending. It will appear after acceptance."
+            )
+          );
+        } else if (
+          pendingMsg.includes("cannot add yourself") ||
+          pendingMsg.includes("add yourself") ||
+          pendingCode.includes("validation_error") ||
+          (err instanceof ApiError && err.status >= 400 && err.status < 500)
+        ) {
+          setFriendActionStatus(formatApiError(err));
+        } else {
+          setUiError(formatApiError(err));
+        }
+      } finally {
+        setFriendActionBusy(false);
       }
-    } finally {
-      setFriendActionBusy(false);
-    }
-  };
+    },
+    [friendActionBusy, refreshAll, scanToken, tr]
+  );
 
   const handleConfirmFriendAction = async () => {
     if (friendActionBusy) return;
@@ -637,39 +671,79 @@ export default function HomeScreen() {
   const canConfirmFriendAction =
     (friendQuery.trim().length > 0 || extractFriendQrToken(scanToken).length > 0) && !friendActionBusy;
 
-  const handleOpenScanner = useCallback(async () => {
+  const handleOpenScanner = useCallback(() => {
     setUiError(null);
     setFriendActionStatus(null);
-    if (cameraPermission?.granted) {
-      setScannerLocked(false);
-      setScannerVisible(true);
-      return;
+    setFriendModal(false);
+    if (restoreFriendModalTimerRef.current) {
+      clearTimeout(restoreFriendModalTimerRef.current);
+      restoreFriendModalTimerRef.current = null;
     }
-    const next = await requestCameraPermission();
-    if (!next.granted) {
-      setUiError(tr("没有相机权限，无法扫码。", "Camera permission is required to scan QR codes."));
-      return;
+    if (pendingScanSubmitTimerRef.current) {
+      clearTimeout(pendingScanSubmitTimerRef.current);
+      pendingScanSubmitTimerRef.current = null;
     }
-    setScannerLocked(false);
-    setScannerVisible(true);
-  }, [cameraPermission?.granted, requestCameraPermission, tr]);
+    if (scannerRouteTimerRef.current) {
+      clearTimeout(scannerRouteTimerRef.current);
+    }
+    scannerRouteTimerRef.current = setTimeout(() => {
+      scannerRouteTimerRef.current = null;
+      router.push({
+        pathname: "/friend-qr-scanner",
+        params: {
+          returnTo: "/",
+        },
+      } as never);
+    }, 180);
+  }, [router]);
 
-  const handleCameraScanned = useCallback(
-    async ({ data }: BarcodeScanningResult) => {
-      if (scannerLocked) return;
-      const raw = typeof data === "string" ? data : "";
-      const token = extractFriendQrToken(raw);
-      if (!token) {
-        setUiError(tr("未识别到好友二维码。", "No valid friend QR code was detected."));
-        return;
+  useEffect(() => {
+    if (!friendModal || !pendingScannedPayload) return;
+
+    const raw = typeof pendingScannedPayload === "string" ? pendingScannedPayload : "";
+    const token = extractFriendQrToken(raw);
+    if (!token) {
+      setPendingScannedPayload("");
+      setUiError(tr("未识别到好友二维码。", "No valid friend QR code was detected."));
+      return;
+    }
+
+    setScanToken(raw);
+    if (pendingScanSubmitTimerRef.current) {
+      clearTimeout(pendingScanSubmitTimerRef.current);
+    }
+    pendingScanSubmitTimerRef.current = setTimeout(() => {
+      pendingScanSubmitTimerRef.current = null;
+      void handleScanByToken(raw);
+      setPendingScannedPayload("");
+    }, 120);
+
+    return () => {
+      if (pendingScanSubmitTimerRef.current) {
+        clearTimeout(pendingScanSubmitTimerRef.current);
+        pendingScanSubmitTimerRef.current = null;
       }
-      setScannerLocked(true);
-      setScannerVisible(false);
-      setScanToken(raw);
-      await handleScanByToken(raw);
-      setScannerLocked(false);
-    },
-    [handleScanByToken, scannerLocked, tr]
+    };
+  }, [friendModal, handleScanByToken, pendingScannedPayload, tr]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!pendingScannedPayload || friendModal) return;
+      if (restoreFriendModalTimerRef.current) {
+        clearTimeout(restoreFriendModalTimerRef.current);
+      }
+      restoreFriendModalTimerRef.current = setTimeout(() => {
+        restoreFriendModalTimerRef.current = null;
+        setFriendModal(true);
+      }, 260);
+
+      return () => {
+        if (restoreFriendModalTimerRef.current) {
+          clearTimeout(restoreFriendModalTimerRef.current);
+          restoreFriendModalTimerRef.current = null;
+        }
+      };
+    }, [friendModal, pendingScannedPayload])
   );
 
   const handleCreateGroup = async () => {
@@ -1206,47 +1280,6 @@ export default function HomeScreen() {
           </Pressable>
         </Modal>
 
-        <Modal
-          visible={scannerVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
-            setScannerVisible(false);
-            setScannerLocked(false);
-          }}
-        >
-          <View style={styles.scannerOverlay}>
-            <View style={styles.scannerCard}>
-              <View style={styles.scannerHeader}>
-                <Text style={styles.formTitle}>{tr("扫描好友二维码", "Scan Friend QR")}</Text>
-                <Pressable
-                  style={styles.scannerCloseBtn}
-                  onPress={() => {
-                    setScannerVisible(false);
-                    setScannerLocked(false);
-                  }}
-                >
-                  <Ionicons name="close" size={18} color="rgba(226,232,240,0.92)" />
-                </Pressable>
-              </View>
-              <Text style={styles.friendHelpText}>
-                {tr(
-                  "将好友二维码放入取景框，识别后会直接发送邀请或添加好友。",
-                  "Place your friend's QR code inside the frame. AgentTown will add or invite automatically."
-                )}
-              </Text>
-              <View style={styles.scannerPreview}>
-                <CameraView
-                  style={styles.scannerCamera}
-                  facing="back"
-                  barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                  onBarcodeScanned={scannerLocked ? undefined : handleCameraScanned}
-                />
-                <View pointerEvents="none" style={styles.scannerFrame} />
-              </View>
-            </View>
-          </View>
-        </Modal>
       </SafeAreaView>
     </KeyframeBackground>
   );
@@ -1639,57 +1672,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 12,
     lineHeight: 18,
-  },
-  scannerOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(2,6,23,0.82)",
-    paddingHorizontal: 18,
-    paddingVertical: 40,
-    justifyContent: "center",
-  },
-  scannerCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(15,23,42,0.92)",
-    padding: 16,
-    gap: 12,
-  },
-  scannerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  scannerCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-  },
-  scannerPreview: {
-    position: "relative",
-    overflow: "hidden",
-    borderRadius: 18,
-    aspectRatio: 1,
-    backgroundColor: "#020617",
-  },
-  scannerCamera: {
-    flex: 1,
-  },
-  scannerFrame: {
-    position: "absolute",
-    left: "16%",
-    right: "16%",
-    top: "16%",
-    bottom: "16%",
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: "rgba(191,219,254,0.92)",
   },
   requestSection: {
     marginBottom: 8,

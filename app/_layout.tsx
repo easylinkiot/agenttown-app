@@ -57,6 +57,15 @@ function RootStack() {
       <Stack.Screen name="sign-up" options={{ animation: "fade" }} />
       <Stack.Screen name="forgot-password" options={{ animation: "fade" }} />
       <Stack.Screen name="friend-qr" options={{ animation: "fade" }} />
+      <Stack.Screen
+        name="friend-qr-scanner"
+        options={{
+          presentation: "transparentModal",
+          animation: "slide_from_bottom",
+          gestureDirection: "vertical",
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      />
       <Stack.Screen name="index" />
       <Stack.Screen name="chat/[id]" />
       <Stack.Screen name="ai-chat" />
