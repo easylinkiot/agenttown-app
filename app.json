@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "AgentTown",
+    "name": "Team Chat",
     "slug": "agenttown",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,11 +19,11 @@
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSMicrophoneUsageDescription": "Allow AgentTown to use the microphone for voice input.",
-        "NSSpeechRecognitionUsageDescription": "Allow AgentTown to use speech recognition for voice input.",
-        "NSCameraUsageDescription": "Allow AgentTown to access the camera for scanning friend QR codes and sharing photos.",
-        "NSPhotoLibraryUsageDescription": "Allow AgentTown to access your photo library to share images.",
-        "NSPhotoLibraryAddUsageDescription": "Allow AgentTown to save images to your photo library."
+        "NSMicrophoneUsageDescription": "Allow Team Chat to use the microphone for voice input.",
+        "NSSpeechRecognitionUsageDescription": "Allow Team Chat to use speech recognition for voice input.",
+        "NSCameraUsageDescription": "Allow Team Chat to access the camera for scanning friend QR codes and sharing photos.",
+        "NSPhotoLibraryUsageDescription": "Allow Team Chat to access your photo library to share images.",
+        "NSPhotoLibraryAddUsageDescription": "Allow Team Chat to save images to your photo library."
       }
     },
     "android": {
@@ -55,8 +55,8 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow AgentTown to use the microphone for voice input.",
-          "speechRecognitionPermission": "Allow AgentTown to use speech recognition for voice input.",
+          "microphonePermission": "Allow Team Chat to use the microphone for voice input.",
+          "speechRecognitionPermission": "Allow Team Chat to use speech recognition for voice input.",
           "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
         }
       ]
