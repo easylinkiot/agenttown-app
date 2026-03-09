@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as AuthSession from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
+import * as ImagePicker from "expo-image-picker";
 import Constants from "expo-constants";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -9,6 +10,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -24,7 +26,7 @@ import { KeyframeBackground } from "@/src/components/KeyframeBackground";
 import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
 import { AUTH_COLORS, AUTH_PLACEHOLDER_COLOR, authStyles } from "@/src/features/auth/authStyles";
 import { tx } from "@/src/i18n/translate";
-import { formatApiError } from "@/src/lib/api";
+import { formatApiError, uploadFileV2 } from "@/src/lib/api";
 import { useAgentTown } from "@/src/state/agenttown-context";
 import {
   AUTH_ERROR_OTP_EXPIRED,
@@ -122,6 +124,16 @@ function validatePhoneForOtp(phone: string, tr: (zh: string, en: string) => stri
   }
 }
 
+function inferImageMimeType(fileName?: string | null, fallbackMimeType?: string | null) {
+  const fallback = (fallbackMimeType || "").trim();
+  if (fallback) return fallback;
+  const lower = (fileName || "").trim().toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".heic")) return "image/heic";
+  return "image/jpeg";
+}
+
 function localizeAuthErrorMessage(
   error: unknown,
   tr: (zh: string, en: string) => string
@@ -141,6 +153,9 @@ function localizeAuthErrorMessage(
   }
 }
 
+type AuthMode = "sign_in" | "sign_up";
+type SignInMethod = "email" | "phone";
+
 export default function SignInScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string; redirect?: string }>();
@@ -152,6 +167,7 @@ export default function SignInScreen() {
     completeProfile,
     signInAsGuest,
     signInWithPassword,
+    signUpWithPassword,
     signInWithApple,
     signInWithGoogle,
     sendPhoneCode,
@@ -160,6 +176,11 @@ export default function SignInScreen() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<AuthMode>("sign_in");
+  const [signInMethod, setSignInMethod] = useState<SignInMethod>("email");
+  const [signUpEmail, setSignUpEmail] = useState("");
+  const [signUpPassword, setSignUpPassword] = useState("");
+  const [signUpConfirmPassword, setSignUpConfirmPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [otpExpiresAt, setOtpExpiresAt] = useState<number | null>(null);
@@ -168,9 +189,13 @@ export default function SignInScreen() {
   const [isAppleAvailable, setIsAppleAvailable] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
+  const [profileAvatarInput, setProfileAvatarInput] = useState("");
+  const [uploadingProfileAvatar, setUploadingProfileAvatar] = useState(false);
   const [showProfileSetup, setShowProfileSetup] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
   const otpInputRef = useRef<TextInput>(null);
+  const signUpPasswordInputRef = useRef<TextInput>(null);
+  const signUpConfirmPasswordInputRef = useRef<TextInput>(null);
   const isExpoGo = Constants.appOwnership === "expo";
   const redirectPath = useMemo(() => {
     const raw = typeof params.redirect === "string" ? params.redirect.trim() : "";
@@ -244,6 +269,7 @@ export default function SignInScreen() {
     if (user.requireProfileSetup) {
       setProfileName(user.displayName || "");
       setProfileEmail(isAppleRelay(user.email) ? "" : (user.email || ""));
+      setProfileAvatarInput(user.avatar || "");
       setShowProfileSetup(true);
       return;
     }
@@ -329,6 +355,70 @@ export default function SignInScreen() {
     setEmail(DEV_LOGIN_PRESET.email);
     setPassword(DEV_LOGIN_PRESET.password);
     setProfileName(DEV_LOGIN_PRESET.displayName);
+  };
+
+  const handlePasswordSignUp = async () => {
+    const normalizedEmail = signUpEmail.trim();
+    if (!normalizedEmail || !normalizedEmail.includes("@")) {
+      Alert.alert(tr("信息不完整", "Incomplete"), tr("请输入有效邮箱。", "Please enter a valid email."));
+      return;
+    }
+    if (signUpPassword.length < 8) {
+      Alert.alert(tr("信息不完整", "Incomplete"), tr("密码至少 8 位。", "Password must be at least 8 characters."));
+      return;
+    }
+    if (signUpPassword !== signUpConfirmPassword) {
+      Alert.alert(tr("信息不完整", "Incomplete"), tr("两次密码不一致。", "Passwords do not match."));
+      return;
+    }
+
+    try {
+      setBusyKey("password");
+      await signUpWithPassword(normalizedEmail, signUpPassword);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : tr("注册失败", "Sign-Up Failed");
+      Alert.alert(tr("注册失败", "Sign-Up Failed"), msg);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handlePickProfileAvatar = async () => {
+    if (busyKey !== null || uploadingProfileAvatar) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          tr("需要相册权限", "Photo Access Required"),
+          tr("请允许访问相册后再选择头像。", "Allow photo-library access before choosing an avatar.")
+        );
+        return;
+      }
+
+      const picker = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+      });
+      if (picker.canceled || !picker.assets.length) return;
+
+      const asset = picker.assets[0];
+      setUploadingProfileAvatar(true);
+      const uploaded = await uploadFileV2({
+        uri: asset.uri,
+        name: asset.fileName || `profile-avatar-${Date.now()}.jpg`,
+        mimeType: inferImageMimeType(asset.fileName, asset.mimeType),
+      });
+      setProfileAvatarInput((uploaded.url || "").trim());
+    } catch (error) {
+      Alert.alert(
+        tr("头像上传失败", "Avatar Upload Failed"),
+        error instanceof Error ? error.message : tr("请稍后重试。", "Please try again later.")
+      );
+    } finally {
+      setUploadingProfileAvatar(false);
+    }
   };
 
   const handleGoogleSignIn = async () => {
@@ -467,6 +557,7 @@ export default function SignInScreen() {
   const handleCompleteProfile = async () => {
     const name = profileName.trim();
     const email = profileEmail.trim();
+    const avatar = profileAvatarInput.trim();
     if (!name) {
       Alert.alert(tr("信息不完整", "Incomplete Profile"), tr("请输入用户名。", "Please enter a username."));
       return;
@@ -481,7 +572,7 @@ export default function SignInScreen() {
 
     try {
       setBusyKey("profile");
-      await completeProfile({ displayName: name, email });
+      await completeProfile({ displayName: name, email, avatar: avatar || undefined });
     } catch (error) {
       const msg = error instanceof Error ? error.message : tr("更新失败", "Failed to update profile");
       Alert.alert(tr("更新失败", "Update Failed"), msg);
@@ -556,133 +647,352 @@ export default function SignInScreen() {
                 </Pressable>
               </View>
             </View>
-
-            <View style={authStyles.card}>
-              <View style={authStyles.cardHeader}>
-                <Text style={authStyles.cardTitle}>{tr("快捷登录", "OAuth Sign-In")}</Text>
-                <Text style={authStyles.cardSubtitle}>
-                  {tr("如果设备已经信任账号，这通常是最快的登录方式。", "Fastest option when your device already trusts the provider.")}
-                </Text>
-              </View>
-
-              <View style={styles.oauthStack}>
-                <Pressable
-                  style={[authStyles.secondaryBtn, styles.googleBtn, (busyKey !== null || !googleRequest) && authStyles.btnDisabled]}
-                  disabled={busyKey !== null || !googleRequest}
-                  onPress={handleGoogleSignIn}
-                >
-                  {busyKey === "google" ? (
-                    <ActivityIndicator size="small" color={AUTH_COLORS.text} />
-                  ) : (
-                    <Ionicons name="logo-google" size={16} color={AUTH_COLORS.text} />
-                  )}
-                  <Text style={styles.oauthBtnText}>{tr("使用 Google 继续", "Continue with Google")}</Text>
-                </Pressable>
-
-                <Pressable
-                  style={[authStyles.primaryBtn, styles.appleBtn, busyKey !== null && authStyles.btnDisabled]}
-                  disabled={busyKey !== null}
-                  onPress={handleAppleSignIn}
-                >
-                  {busyKey === "apple" ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <Ionicons name="logo-apple" size={16} color="#ffffff" />
-                  )}
-                  <Text style={authStyles.primaryBtnText}>{tr("使用 Apple 继续", "Continue with Apple")}</Text>
-                </Pressable>
-              </View>
-            </View>
-
-            <View style={authStyles.card}>
-              <View style={authStyles.cardHeader}>
-                <Text style={authStyles.cardTitle}>{tr("邮箱和密码", "Email & Password")}</Text>
-                <Text style={authStyles.cardSubtitle}>
-                  {tr("支持系统自动填充，适合长期账号登录。", "Supports system autofill and works best for persistent accounts.")}
-                </Text>
-              </View>
-
-              <View style={authStyles.inputGroup}>
-                <Text style={authStyles.label}>{tr("邮箱", "Email")}</Text>
-                <TextInput
-                  testID="auth-email-input"
-                  style={authStyles.input}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder={tr("you@example.com", "you@example.com")}
-                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="email"
-                  textContentType="emailAddress"
-                  returnKeyType="next"
-                  onSubmitEditing={() => passwordInputRef.current?.focus()}
-                />
-              </View>
-
-              <View style={authStyles.inputGroup}>
-                <Text style={authStyles.label}>{tr("密码", "Password")}</Text>
-                <TextInput
-                  ref={passwordInputRef}
-                  testID="auth-password-input"
-                  style={authStyles.input}
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder={tr("输入你的账号密码", "Enter your password")}
-                  placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="current-password"
-                  textContentType="password"
-                  returnKeyType="done"
-                  onSubmitEditing={handlePasswordSignIn}
-                />
-              </View>
-
-              <View style={authStyles.ghostRow}>
-                <Pressable
-                  style={[authStyles.ghostBtn, busyKey !== null && authStyles.btnDisabled]}
-                  disabled={busyKey !== null}
-                  onPress={() => router.push("/sign-up")}
-                >
-                  <Text style={authStyles.ghostBtnText}>{tr("创建账号", "Create Account")}</Text>
-                </Pressable>
-                <Pressable
-                  style={[authStyles.ghostBtn, busyKey !== null && authStyles.btnDisabled]}
-                  disabled={busyKey !== null}
-                  onPress={() => router.push("./forgot-password")}
-                >
-                  <Text style={authStyles.ghostBtnText}>{tr("忘记密码？", "Forgot Password?")}</Text>
-                </Pressable>
-              </View>
-
-              {__DEV__ ? (
-                <Pressable
-                  style={[authStyles.secondaryBtn, busyKey !== null && authStyles.btnDisabled]}
-                  disabled={busyKey !== null}
-                  onPress={handleFillDevAccount}
-                >
-                  <Ionicons name="sparkles-outline" size={16} color={AUTH_COLORS.text} />
-                  <Text style={authStyles.secondaryBtnText}>{tr("填充管理员账号（DEV）", "Fill Local Admin (DEV)")}</Text>
-                </Pressable>
-              ) : null}
-
+            <View style={styles.modeTabs}>
               <Pressable
-                testID="auth-password-login-button"
-                style={[authStyles.primaryBtn, busyKey !== null && authStyles.btnDisabled]}
-                disabled={busyKey !== null}
-                onPress={handlePasswordSignIn}
+                style={[styles.modeTab, authMode === "sign_in" && styles.modeTabActive]}
+                onPress={() => setAuthMode("sign_in")}
               >
-                {busyKey === "password" ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <Ionicons name="log-in-outline" size={16} color="#ffffff" />
-                )}
-                <Text style={authStyles.primaryBtnText}>{tr("登录", "Sign In")}</Text>
+                <Text style={[styles.modeTabText, authMode === "sign_in" && styles.modeTabTextActive]}>
+                  {tr("登录", "Sign In")}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modeTab, authMode === "sign_up" && styles.modeTabActive]}
+                onPress={() => setAuthMode("sign_up")}
+              >
+                <Text style={[styles.modeTabText, authMode === "sign_up" && styles.modeTabTextActive]}>
+                  {tr("注册", "Sign Up")}
+                </Text>
               </Pressable>
             </View>
+
+            {authMode === "sign_in" ? (
+              <>
+                <View style={authStyles.card}>
+                  <View style={authStyles.cardHeader}>
+                    <Text style={authStyles.cardTitle}>{tr("快捷登录", "OAuth Sign-In")}</Text>
+                    <Text style={authStyles.cardSubtitle}>
+                      {tr("如果设备已经信任账号，这通常是最快的登录方式。", "Fastest option when your device already trusts the provider.")}
+                    </Text>
+                  </View>
+
+                  <View style={styles.oauthStack}>
+                    <Pressable
+                      style={[authStyles.secondaryBtn, styles.googleBtn, (busyKey !== null || !googleRequest) && authStyles.btnDisabled]}
+                      disabled={busyKey !== null || !googleRequest}
+                      onPress={handleGoogleSignIn}
+                    >
+                      {busyKey === "google" ? (
+                        <ActivityIndicator size="small" color={AUTH_COLORS.text} />
+                      ) : (
+                        <Ionicons name="logo-google" size={16} color={AUTH_COLORS.text} />
+                      )}
+                      <Text style={styles.oauthBtnText}>{tr("使用 Google 继续", "Continue with Google")}</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[authStyles.primaryBtn, styles.appleBtn, busyKey !== null && authStyles.btnDisabled]}
+                      disabled={busyKey !== null}
+                      onPress={handleAppleSignIn}
+                    >
+                      {busyKey === "apple" ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <Ionicons name="logo-apple" size={16} color="#ffffff" />
+                      )}
+                      <Text style={authStyles.primaryBtnText}>{tr("使用 Apple 继续", "Continue with Apple")}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={authStyles.card}>
+                  <View style={styles.innerTabs}>
+                    <Pressable
+                      style={[styles.innerTab, signInMethod === "email" && styles.innerTabActive]}
+                      onPress={() => setSignInMethod("email")}
+                    >
+                      <Text style={[styles.innerTabText, signInMethod === "email" && styles.innerTabTextActive]}>
+                        {tr("邮箱", "Email")}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.innerTab, signInMethod === "phone" && styles.innerTabActive]}
+                      onPress={() => setSignInMethod("phone")}
+                    >
+                      <Text style={[styles.innerTabText, signInMethod === "phone" && styles.innerTabTextActive]}>
+                        {tr("短信", "Phone")}
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  {signInMethod === "email" ? (
+                    <>
+                      <View style={authStyles.cardHeader}>
+                        <Text style={authStyles.cardTitle}>{tr("邮箱和密码", "Email & Password")}</Text>
+                        <Text style={authStyles.cardSubtitle}>
+                          {tr("支持系统自动填充，适合长期账号登录。", "Supports system autofill and works best for persistent accounts.")}
+                        </Text>
+                      </View>
+
+                      <View style={authStyles.inputGroup}>
+                        <Text style={authStyles.label}>{tr("邮箱", "Email")}</Text>
+                        <TextInput
+                          testID="auth-email-input"
+                          style={authStyles.input}
+                          value={email}
+                          onChangeText={setEmail}
+                          placeholder={tr("you@example.com", "you@example.com")}
+                          placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          autoComplete="email"
+                          textContentType="emailAddress"
+                          returnKeyType="next"
+                          onSubmitEditing={() => passwordInputRef.current?.focus()}
+                        />
+                      </View>
+
+                      <View style={authStyles.inputGroup}>
+                        <Text style={authStyles.label}>{tr("密码", "Password")}</Text>
+                        <TextInput
+                          ref={passwordInputRef}
+                          testID="auth-password-input"
+                          style={authStyles.input}
+                          value={password}
+                          onChangeText={setPassword}
+                          placeholder={tr("输入你的账号密码", "Enter your password")}
+                          placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                          secureTextEntry
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          autoComplete="current-password"
+                          textContentType="password"
+                          returnKeyType="done"
+                          onSubmitEditing={handlePasswordSignIn}
+                        />
+                      </View>
+
+                      <View style={authStyles.ghostRow}>
+                        <Pressable
+                          style={[authStyles.ghostBtn, busyKey !== null && authStyles.btnDisabled]}
+                          disabled={busyKey !== null}
+                          onPress={() => setAuthMode("sign_up")}
+                        >
+                          <Text style={authStyles.ghostBtnText}>{tr("创建账号", "Create Account")}</Text>
+                        </Pressable>
+                        <Pressable
+                          style={[authStyles.ghostBtn, busyKey !== null && authStyles.btnDisabled]}
+                          disabled={busyKey !== null}
+                          onPress={() => router.push("./forgot-password")}
+                        >
+                          <Text style={authStyles.ghostBtnText}>{tr("忘记密码？", "Forgot Password?")}</Text>
+                        </Pressable>
+                      </View>
+
+                      {__DEV__ ? (
+                        <Pressable
+                          style={[authStyles.secondaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                          disabled={busyKey !== null}
+                          onPress={handleFillDevAccount}
+                        >
+                          <Ionicons name="sparkles-outline" size={16} color={AUTH_COLORS.text} />
+                          <Text style={authStyles.secondaryBtnText}>{tr("填充管理员账号（DEV）", "Fill Local Admin (DEV)")}</Text>
+                        </Pressable>
+                      ) : null}
+
+                      <Pressable
+                        testID="auth-password-login-button"
+                        style={[authStyles.primaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                        disabled={busyKey !== null}
+                        onPress={handlePasswordSignIn}
+                      >
+                        {busyKey === "password" ? (
+                          <ActivityIndicator size="small" color="#ffffff" />
+                        ) : (
+                          <Ionicons name="log-in-outline" size={16} color="#ffffff" />
+                        )}
+                        <Text style={authStyles.primaryBtnText}>{tr("登录", "Sign In")}</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      <View style={authStyles.cardHeader}>
+                        <Text style={authStyles.cardTitle}>{tr("短信验证码", "SMS Verification")}</Text>
+                        <Text style={authStyles.cardSubtitle}>
+                          {tr("作为备用登录方式，适合临时回到账号。", "Alternative sign-in method when you need quick account access.")}
+                        </Text>
+                      </View>
+
+                      <View style={authStyles.inputGroup}>
+                        <Text style={authStyles.label}>{tr("手机号", "Phone Number")}</Text>
+                        <TextInput
+                          style={authStyles.input}
+                          value={phone}
+                          onChangeText={setPhone}
+                          placeholder={language === "zh" ? "+86 13800138000" : "+1 415 555 0123"}
+                          placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                          keyboardType="phone-pad"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          autoComplete="tel"
+                          textContentType="telephoneNumber"
+                          returnKeyType="next"
+                          onSubmitEditing={() => otpInputRef.current?.focus()}
+                        />
+                      </View>
+
+                      <Pressable
+                        style={[authStyles.secondaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                        disabled={busyKey !== null}
+                        onPress={handleSendCode}
+                      >
+                        {busyKey === "phone" ? (
+                          <ActivityIndicator size="small" color={AUTH_COLORS.text} />
+                        ) : (
+                          <Ionicons name="chatbox-ellipses-outline" size={16} color={AUTH_COLORS.text} />
+                        )}
+                        <Text style={authStyles.secondaryBtnText}>{tr("发送验证码", "Send Code")}</Text>
+                      </Pressable>
+
+                      <View style={authStyles.inputGroup}>
+                        <Text style={authStyles.label}>{tr("验证码", "Verification Code")}</Text>
+                        <TextInput
+                          ref={otpInputRef}
+                          style={authStyles.input}
+                          value={otpCode}
+                          onChangeText={setOtpCode}
+                          placeholder={tr("6 位验证码", "6-digit code")}
+                          placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                          keyboardType="number-pad"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          autoComplete="one-time-code"
+                          textContentType="oneTimeCode"
+                          returnKeyType="done"
+                          onSubmitEditing={handleVerifyCode}
+                        />
+                      </View>
+
+                      <Pressable
+                        style={[authStyles.primaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                        disabled={busyKey !== null}
+                        onPress={handleVerifyCode}
+                      >
+                        <Ionicons name="log-in-outline" size={16} color="#ffffff" />
+                        <Text style={authStyles.primaryBtnText}>{tr("验证并登录", "Verify and Sign In")}</Text>
+                      </Pressable>
+                      <Text style={authStyles.helperText}>{otpTimeText}</Text>
+                      {__DEV__ && devOtpHint ? (
+                        <Text style={authStyles.devHint}>{tr("开发验证码", "DEV CODE")}: {devOtpHint}</Text>
+                      ) : null}
+                    </>
+                  )}
+                </View>
+
+                <View style={authStyles.card}>
+                  <View style={authStyles.cardHeader}>
+                    <Text style={authStyles.cardTitle}>{tr("快速体验", "Quick Start")}</Text>
+                    <Text style={authStyles.cardSubtitle}>
+                      {tr("先进入产品体验，再决定是否绑定正式账号。", "Enter the product first, then decide whether to bind a full account.")}
+                    </Text>
+                  </View>
+                  <Pressable
+                    testID="auth-guest-login-button"
+                    style={[authStyles.secondaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                    disabled={busyKey !== null}
+                    onPress={handleGuestSignIn}
+                  >
+                    {busyKey === "guest" ? (
+                      <ActivityIndicator size="small" color={AUTH_COLORS.text} />
+                    ) : (
+                      <Ionicons name="walk-outline" size={16} color={AUTH_COLORS.text} />
+                    )}
+                    <Text style={authStyles.secondaryBtnText}>{tr("游客模式继续", "Continue as Guest")}</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <View style={authStyles.card}>
+                <View style={authStyles.cardHeader}>
+                  <Text style={authStyles.cardTitle}>{tr("邮箱注册", "Email Sign-Up")}</Text>
+                  <Text style={authStyles.cardSubtitle}>
+                    {tr("注册与登录分开后，首屏更清晰；这里只保留创建账号所需字段。", "Registration stays separate so the first screen stays focused.")}
+                  </Text>
+                </View>
+
+                <View style={authStyles.inputGroup}>
+                  <Text style={authStyles.label}>{tr("邮箱", "Email")}</Text>
+                  <TextInput
+                    style={authStyles.input}
+                    value={signUpEmail}
+                    onChangeText={setSignUpEmail}
+                    placeholder={tr("you@example.com", "you@example.com")}
+                    placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    returnKeyType="next"
+                    onSubmitEditing={() => signUpPasswordInputRef.current?.focus()}
+                  />
+                </View>
+
+                <View style={authStyles.inputGroup}>
+                  <Text style={authStyles.label}>{tr("密码", "Password")}</Text>
+                  <TextInput
+                    ref={signUpPasswordInputRef}
+                    style={authStyles.input}
+                    value={signUpPassword}
+                    onChangeText={setSignUpPassword}
+                    placeholder={tr("至少 8 位，建议混合字母和数字", "At least 8 characters; mix letters and numbers")}
+                    placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="new-password"
+                    textContentType="newPassword"
+                    returnKeyType="next"
+                    onSubmitEditing={() => signUpConfirmPasswordInputRef.current?.focus()}
+                  />
+                </View>
+
+                <View style={authStyles.inputGroup}>
+                  <Text style={authStyles.label}>{tr("确认密码", "Confirm Password")}</Text>
+                  <TextInput
+                    ref={signUpConfirmPasswordInputRef}
+                    style={authStyles.input}
+                    value={signUpConfirmPassword}
+                    onChangeText={setSignUpConfirmPassword}
+                    placeholder={tr("再次输入密码", "Enter password again")}
+                    placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="new-password"
+                    textContentType="newPassword"
+                    returnKeyType="done"
+                    onSubmitEditing={handlePasswordSignUp}
+                  />
+                </View>
+
+                <Text style={authStyles.helperText}>{tr("创建成功后会自动登录当前设备。", "The app signs you in automatically after account creation.")}</Text>
+
+                <Pressable
+                  style={[authStyles.primaryBtn, busyKey !== null && authStyles.btnDisabled]}
+                  disabled={busyKey !== null}
+                  onPress={handlePasswordSignUp}
+                >
+                  {busyKey === "password" ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Ionicons name="person-add-outline" size={16} color="#ffffff" />
+                  )}
+                  <Text style={authStyles.primaryBtnText}>{tr("注册并登录", "Create Account")}</Text>
+                </Pressable>
+              </View>
+            )}
 
             {showProfileSetup ? (
               <View style={authStyles.card}>
@@ -710,6 +1020,42 @@ export default function SignInScreen() {
                     textContentType="name"
                     returnKeyType="next"
                   />
+                </View>
+
+                <View style={authStyles.inputGroup}>
+                  <Text style={authStyles.label}>{tr("头像", "Avatar")}</Text>
+                  <View style={styles.profileAvatarRow}>
+                    {profileAvatarInput ? (
+                      <Image source={{ uri: profileAvatarInput }} style={styles.profileAvatarPreview} />
+                    ) : (
+                      <View style={[styles.profileAvatarPreview, styles.profileAvatarFallback]}>
+                        <Ionicons name="person-outline" size={24} color="rgba(226,232,240,0.82)" />
+                      </View>
+                    )}
+                    <View style={styles.profileAvatarActions}>
+                      <Pressable
+                        style={[authStyles.secondaryBtn, (busyKey !== null || uploadingProfileAvatar) && authStyles.btnDisabled]}
+                        disabled={busyKey !== null || uploadingProfileAvatar}
+                        onPress={handlePickProfileAvatar}
+                      >
+                        {uploadingProfileAvatar ? (
+                          <ActivityIndicator size="small" color={AUTH_COLORS.text} />
+                        ) : (
+                          <Ionicons name="image-outline" size={16} color={AUTH_COLORS.text} />
+                        )}
+                        <Text style={authStyles.secondaryBtnText}>{tr("上传头像", "Upload Avatar")}</Text>
+                      </Pressable>
+                      <TextInput
+                        style={authStyles.input}
+                        value={profileAvatarInput}
+                        onChangeText={setProfileAvatarInput}
+                        placeholder={tr("或粘贴头像 URL", "Or paste avatar URL")}
+                        placeholderTextColor={AUTH_PLACEHOLDER_COLOR}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                    </View>
+                  </View>
                 </View>
 
                 <View style={authStyles.inputGroup}>
@@ -846,6 +1192,66 @@ export default function SignInScreen() {
 }
 
 const styles = StyleSheet.create({
+  modeTabs: {
+    flexDirection: "row",
+    gap: 8,
+    padding: 6,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.18)",
+    backgroundColor: "rgba(9,14,27,0.72)",
+  },
+  modeTab: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15,23,42,0.62)",
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.16)",
+  },
+  modeTabActive: {
+    backgroundColor: "rgba(37,99,235,0.82)",
+    borderColor: "rgba(147,197,253,0.4)",
+  },
+  modeTabText: {
+    color: AUTH_COLORS.textSoft,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  modeTabTextActive: {
+    color: "#ffffff",
+  },
+  innerTabs: {
+    flexDirection: "row",
+    gap: 8,
+    padding: 4,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.16)",
+    backgroundColor: "rgba(2,6,23,0.32)",
+  },
+  innerTab: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  innerTabActive: {
+    backgroundColor: "rgba(37,99,235,0.22)",
+    borderWidth: 1,
+    borderColor: "rgba(147,197,253,0.28)",
+  },
+  innerTabText: {
+    color: AUTH_COLORS.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  innerTabTextActive: {
+    color: AUTH_COLORS.text,
+  },
   oauthStack: {
     gap: 10,
   },
@@ -859,5 +1265,26 @@ const styles = StyleSheet.create({
     color: AUTH_COLORS.text,
     fontSize: 14,
     fontWeight: "700",
+  },
+  profileAvatarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  profileAvatarPreview: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+  },
+  profileAvatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.18)",
+    backgroundColor: "rgba(15,23,42,0.72)",
+  },
+  profileAvatarActions: {
+    flex: 1,
+    gap: 8,
   },
 });

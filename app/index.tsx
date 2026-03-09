@@ -98,6 +98,7 @@ export default function HomeScreen() {
     friends,
     agents,
     botConfig,
+    resolveFriendDisplayName,
     language,
     bootstrapReady,
     createFriend,
@@ -179,7 +180,7 @@ export default function HomeScreen() {
           return {
             id: `friend:${f.id}`,
             entityId: f.userId || f.id,
-            name: f.name,
+            name: role === "human" ? resolveFriendDisplayName(f, f.name) : f.name,
             avatar: f.avatar,
             entityType: role,
             role,
@@ -210,7 +211,7 @@ export default function HomeScreen() {
         })),
     ];
     return items.slice(0, 9);
-  }, [agents, friends, user?.displayName, user?.id]);
+  }, [agents, friends, resolveFriendDisplayName, user?.displayName, user?.id]);
 
   const handleRemovePresence = useCallback(
     (item: PresenceItem) => {

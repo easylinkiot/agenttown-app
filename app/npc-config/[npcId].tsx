@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -296,6 +298,11 @@ export default function NPCConfigScreen() {
   return (
     <KeyframeBackground>
       <SafeAreaView edges={APP_SAFE_AREA_EDGES} style={styles.safeArea}>
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoid}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+        >
         <View style={styles.container}>
           <View style={styles.headerRow}>
             <Pressable style={styles.backBtn} onPress={() => router.back()}>
@@ -340,7 +347,13 @@ export default function NPCConfigScreen() {
               icon="alert-circle-outline"
             />
           ) : (
-            <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>
+            <>
+            <ScrollView
+              style={styles.body}
+              contentContainerStyle={styles.bodyContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
               <View style={styles.heroCard}>
                 <View style={styles.sectionTopRow}>
                   <View style={styles.heroTextWrap}>
@@ -351,17 +364,6 @@ export default function NPCConfigScreen() {
                         : tr("系统级 NPC 当前仅支持只读查看", "System NPC is read-only")}
                     </Text>
                   </View>
-                  <Pressable
-                    style={[styles.primaryPill, !canSaveBasics && styles.primaryPillDisabled]}
-                    disabled={!canSaveBasics}
-                    onPress={() => void handleSaveBasics()}
-                  >
-                    {savingBasics ? (
-                      <ActivityIndicator size="small" color="#0b1220" />
-                    ) : (
-                      <Text style={styles.primaryPillText}>{tr("保存", "Save")}</Text>
-                    )}
-                  </Pressable>
                 </View>
 
                 <Text style={styles.formLabel}>{tr("Name *", "Name *")}</Text>
@@ -385,18 +387,6 @@ export default function NPCConfigScreen() {
                   style={[styles.input, !canModifyNpc && styles.inputReadonly]}
                 />
 
-                <Text style={styles.formLabel}>{tr("Intro", "Intro")}</Text>
-                <TextInput
-                  value={formIntro}
-                  onChangeText={setFormIntro}
-                  editable={canModifyNpc}
-                  multiline
-                  textAlignVertical="top"
-                  placeholder={tr("输入 NPC 简介", "Enter NPC intro")}
-                  placeholderTextColor="rgba(148,163,184,0.88)"
-                  style={[styles.input, styles.textareaSm, !canModifyNpc && styles.inputReadonly]}
-                />
-
                 <Text style={styles.formLabel}>{tr("System Prompt *", "System Prompt *")}</Text>
                 <TextInput
                   value={formSystemPrompt}
@@ -407,6 +397,22 @@ export default function NPCConfigScreen() {
                   placeholder={tr("输入系统提示词", "Enter system prompt")}
                   placeholderTextColor="rgba(148,163,184,0.88)"
                   style={[styles.input, styles.textareaLg, !canModifyNpc && styles.inputReadonly]}
+                />
+
+                <Text style={styles.helperText}>
+                  {tr("这里决定 NPC 的说话风格、身份设定和边界。", "This controls the NPC tone, persona, and boundaries.")}
+                </Text>
+
+                <Text style={styles.formLabel}>{tr("Intro", "Intro")}</Text>
+                <TextInput
+                  value={formIntro}
+                  onChangeText={setFormIntro}
+                  editable={canModifyNpc}
+                  multiline
+                  textAlignVertical="top"
+                  placeholder={tr("输入 NPC 简介", "Enter NPC intro")}
+                  placeholderTextColor="rgba(148,163,184,0.88)"
+                  style={[styles.input, styles.textareaSm, !canModifyNpc && styles.inputReadonly]}
                 />
 
                 <Text style={styles.formLabel}>{tr("Model Name", "Model Name")}</Text>
@@ -665,8 +671,31 @@ export default function NPCConfigScreen() {
                 </Pressable>
               </View>
             </ScrollView>
+            <View style={styles.footerBar}>
+              <View style={styles.footerCopy}>
+                <Text style={styles.footerTitle}>{tr("Prompt 与基础信息", "Prompt and basics")}</Text>
+                <Text style={styles.footerHint}>
+                  {canModifyNpc
+                    ? tr("修改后点保存立即生效。", "Tap Save to apply changes immediately.")
+                    : tr("系统级 NPC 当前为只读。", "System NPC is currently read-only.")}
+                </Text>
+              </View>
+              <Pressable
+                style={[styles.primaryPill, styles.footerSaveBtn, !canSaveBasics && styles.primaryPillDisabled]}
+                disabled={!canSaveBasics}
+                onPress={() => void handleSaveBasics()}
+              >
+                {savingBasics ? (
+                  <ActivityIndicator size="small" color="#0b1220" />
+                ) : (
+                  <Text style={styles.primaryPillText}>{tr("保存", "Save")}</Text>
+                )}
+              </Pressable>
+            </View>
+            </>
           )}
         </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </KeyframeBackground>
   );
@@ -676,6 +705,9 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "transparent",
+  },
+  keyboardAvoid: {
+    flex: 1,
   },
   container: {
     flex: 1,
@@ -724,7 +756,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   bodyContent: {
-    paddingBottom: 18,
+    paddingBottom: 120,
     gap: 12,
   },
   heroCard: {
@@ -754,6 +786,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: 4,
+  },
+  helperText: {
+    color: "rgba(148,163,184,0.92)",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 2,
   },
   input: {
     minHeight: 46,
@@ -984,5 +1022,34 @@ const styles = StyleSheet.create({
     color: "#fff1f2",
     fontSize: 13,
     fontWeight: "900",
+  },
+  footerBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(15,23,42,0.88)",
+    marginBottom: 4,
+  },
+  footerCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  footerTitle: {
+    color: "#f8fafc",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  footerHint: {
+    color: "rgba(148,163,184,0.9)",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  footerSaveBtn: {
+    minWidth: 96,
   },
 });

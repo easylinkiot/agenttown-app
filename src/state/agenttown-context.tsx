@@ -6,6 +6,12 @@ import { Platform } from "react-native";
 
 import { DEFAULT_MYBOT_AVATAR } from "@/src/constants/chat";
 import {
+  friendAliasKeys,
+  friendAliasStorageKey,
+  normalizeFriendAliases,
+  resolveFriendDisplayName as resolveFriendDisplayNameFromAliases,
+} from "@/src/features/friends/alias";
+import {
   addThreadMember as addThreadMemberApi,
   createAgent as createAgentApi,
   createChatThread,
@@ -86,6 +92,7 @@ interface AgentTownContextValue {
   chatThreads: ChatThread[];
   messagesByThread: Record<string, ConversationMessage[]>;
   friends: Friend[];
+  friendAliases: Record<string, string>;
   threadMembers: Record<string, ThreadMember[]>;
   agents: Agent[];
   skillCatalog: SkillCatalogItem[];
@@ -128,6 +135,8 @@ interface AgentTownContextValue {
     company?: string;
     threadId?: string;
   }) => Promise<Friend | null>;
+  setFriendAlias: (friend: Friend, alias: string) => Promise<void>;
+  resolveFriendDisplayName: (friend: Friend | null | undefined, fallback?: string) => string;
   removeFriend: (friendId: string) => Promise<void>;
   createAgent: (input: CreateAgentInput) => Promise<Agent | null>;
   removeAgent: (agentId: string) => Promise<void>;
@@ -600,6 +609,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     friendsRef.current = friends;
   }, [friends]);
+  const [friendAliases, setFriendAliases] = useState<Record<string, string>>({});
   const [threadMembers, setThreadMembers] =
     useState<Record<string, ThreadMember[]>>(defaultThreadMembers);
   const [agents, setAgents] = useState<Agent[]>(defaultAgents);
@@ -627,6 +637,18 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       if (!isSignedIn || !userID) return;
       try {
         await AsyncStorage.setItem(threadLanguageStorageKey(userID), JSON.stringify(next));
+      } catch {
+        // Ignore persistence failure.
+      }
+    },
+    [isSignedIn, userID]
+  );
+
+  const persistFriendAliases = useCallback(
+    async (next: Record<string, string>) => {
+      if (!isSignedIn || !userID) return;
+      try {
+        await AsyncStorage.setItem(friendAliasStorageKey(userID), JSON.stringify(next));
       } catch {
         // Ignore persistence failure.
       }
@@ -801,6 +823,38 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       } catch {
         if (!cancelled) {
           setThreadLanguageById({});
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, userID]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isSignedIn || !userID) {
+      setFriendAliases({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(friendAliasStorageKey(userID));
+        if (cancelled) return;
+        if (!raw) {
+          setFriendAliases({});
+          return;
+        }
+        const parsed = JSON.parse(raw) as unknown;
+        setFriendAliases(normalizeFriendAliases(parsed));
+      } catch {
+        if (!cancelled) {
+          setFriendAliases({});
         }
       }
     })();
@@ -1410,6 +1464,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       chatThreads,
       messagesByThread,
       friends,
+      friendAliases,
       threadMembers,
       agents,
       skillCatalog,
@@ -1584,6 +1639,33 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
         // mode === "request": request created successfully, wait for the other side to accept.
         return null;
       },
+      setFriendAlias: async (friend, alias) => {
+        const keys = friendAliasKeys(friend);
+        if (keys.length === 0) return;
+        const normalizedAlias = alias.trim();
+        setFriendAliases((previous) => {
+          const next = { ...previous };
+          let changed = false;
+          if (normalizedAlias) {
+            for (const key of keys) {
+              if (next[key] === normalizedAlias) continue;
+              next[key] = normalizedAlias;
+              changed = true;
+            }
+          } else {
+            for (const key of keys) {
+              if (!(key in next)) continue;
+              delete next[key];
+              changed = true;
+            }
+          }
+          if (!changed) return previous;
+          void persistFriendAliases(next);
+          return next;
+        });
+      },
+      resolveFriendDisplayName: (friend, fallback = "") =>
+        resolveFriendDisplayNameFromAliases(friendAliases, friend, fallback),
       removeFriend: async (friendId) => {
         if (!friendId) return;
         const existing = friends.find((item) => item.id === friendId);
@@ -2060,6 +2142,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     botConfig,
     chatThreads,
     customSkills,
+    friendAliases,
     friends,
     isE2E,
     language,
@@ -2071,6 +2154,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     miniApps,
     myHouseType,
     patchThreadLanguageMap,
+    persistFriendAliases,
     refreshAll,
     refreshThreadMessages,
     shouldUseThreadMessageCache,

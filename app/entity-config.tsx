@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useMemo } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { KeyframeBackground } from "@/src/components/KeyframeBackground";
 import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
+import { getFriendAlias } from "@/src/features/friends/alias";
 import { tx } from "@/src/i18n/translate";
 import { useAgentTown } from "@/src/state/agenttown-context";
 import { useAuth } from "@/src/state/auth-context";
@@ -44,8 +45,10 @@ export default function EntityConfigScreen() {
   }>();
 
   const { user } = useAuth();
-  const { friends, agents, botConfig, language } = useAgentTown();
+  const { friends, agents, botConfig, language, friendAliases, resolveFriendDisplayName, setFriendAlias } = useAgentTown();
   const tr = (zh: string, en: string) => tx(language, zh, en);
+
+  const [friendAliasInput, setFriendAliasInput] = useState("");
 
   const entityType = normalizeEntityType(String(params.entityType || ""));
   const entityId = String(params.entityId || "").trim();
@@ -76,7 +79,9 @@ export default function EntityConfigScreen() {
 
   const resolvedName = useMemo(() => {
     if (isSelf) return (user?.displayName || "").trim() || tr("我", "Me");
-    if (entityType === "human") return (friend?.name || fallbackName || tr("未知用户", "Unknown user")).trim();
+    if (entityType === "human") {
+      return resolveFriendDisplayName(friend, fallbackName || tr("未知用户", "Unknown user")).trim();
+    }
     if (entityType === "bot" && entityId === "agent_mybot") return botConfig.name || "MyBot";
     if (entityType === "bot")
       return (friend?.name || agent?.name || fallbackName || tr("未知 Bot", "Unknown bot")).trim();
@@ -87,11 +92,18 @@ export default function EntityConfigScreen() {
     entityId,
     entityType,
     fallbackName,
-    friend?.name,
+    friend,
     isSelf,
+    resolveFriendDisplayName,
     tr,
     user?.displayName,
   ]);
+
+  const currentFriendAlias = useMemo(() => getFriendAlias(friendAliases, friend), [friend, friendAliases]);
+
+  useEffect(() => {
+    setFriendAliasInput(currentFriendAlias);
+  }, [currentFriendAlias]);
 
   const resolvedAvatar = useMemo(() => {
     if (isSelf) return (user?.avatar || botConfig.avatar || "").trim();
@@ -168,6 +180,7 @@ export default function EntityConfigScreen() {
               <Field label="ID" value={entityId || "-"} />
               {entityType === "human" ? (
                 <>
+                  {!isSelf ? <Field label={tr("账号名", "Account Name")} value={friend?.name || fallbackName || "-"} /> : null}
                   <Field label={tr("邮箱", "Email")} value={isSelf ? user?.email || "-" : "-"} />
                   <Field label={tr("电话", "Phone")} value={isSelf ? user?.phone || "-" : "-"} />
                   <Field label={tr("来源", "Provider")} value={isSelf ? user?.provider || "-" : tr("联系人", "Contact")} />
@@ -181,6 +194,37 @@ export default function EntityConfigScreen() {
                 </>
               )}
             </View>
+
+            {entityType === "human" && !isSelf && friend ? (
+              <View style={styles.card}>
+                <Field label={tr("你的备注名", "Your display name")} value={currentFriendAlias || tr("未设置", "Not set")} />
+                <Text style={styles.aliasLabel}>{tr("显示名字", "Display Name")}</Text>
+                <TextInput
+                  style={styles.aliasInput}
+                  value={friendAliasInput}
+                  onChangeText={setFriendAliasInput}
+                  placeholder={tr("例如：初中老师 / Jason from AWS", "For example: Middle school teacher / Jason from AWS")}
+                  placeholderTextColor="rgba(148,163,184,0.82)"
+                />
+                <View style={styles.aliasActions}>
+                  <Pressable
+                    style={styles.secondaryBtn}
+                    onPress={() => {
+                      setFriendAliasInput("");
+                      void setFriendAlias(friend, "");
+                    }}
+                  >
+                    <Text style={styles.secondaryBtnText}>{tr("清除", "Clear")}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.primaryBtn}
+                    onPress={() => void setFriendAlias(friend, friendAliasInput)}
+                  >
+                    <Text style={styles.primaryBtnText}>{tr("保存备注", "Save Display Name")}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
 
             <View style={styles.actionRow}>
               {entityType === "human" && isSelf ? (
@@ -326,8 +370,45 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "700",
   },
+  aliasLabel: {
+    color: "rgba(191,219,254,0.94)",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  aliasInput: {
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(2,6,23,0.45)",
+    color: "#e2e8f0",
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  aliasActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 6,
+  },
   actionRow: {
     gap: 10,
+  },
+  secondaryBtn: {
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(15,23,42,0.62)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  secondaryBtnText: {
+    color: "#e2e8f0",
+    fontSize: 13,
+    fontWeight: "800",
   },
   primaryBtn: {
     minHeight: 44,

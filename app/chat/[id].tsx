@@ -509,6 +509,7 @@ export default function ChatDetailScreen() {
     agents,
     botConfig,
     language,
+    resolveFriendDisplayName,
     threadLanguageById,
     refreshAll,
     refreshThreadMessages,
@@ -585,6 +586,14 @@ export default function ChatDetailScreen() {
   const messages = useMemo(() => messagesByThread[chatId] || EMPTY_MESSAGES, [messagesByThread, chatId]);
   const linkedFriend = useMemo(() => friends.find((item) => item.threadId === chatId), [chatId, friends]);
   const currentUserId = (user?.id || "").trim();
+  const getMemberDisplayName = useCallback(
+    (member: ThreadMember) => {
+      if (member.memberType !== "human") return (member.name || "").trim();
+      const linked = friends.find((item) => item.id === member.friendId);
+      return resolveFriendDisplayName(linked, member.name || tr("未知成员", "Unknown member"));
+    },
+    [friends, resolveFriendDisplayName, tr]
+  );
 
   const isSelfThreadMember = useCallback(
     (member: ThreadMember) => {
@@ -1909,16 +1918,26 @@ export default function ChatDetailScreen() {
         if (uid && usedHumanUserIDs.has(uid)) return false;
         return !usedFriendIds.has(f.id);
       })
-      .map((f) => ({
-        key: `friend:${f.id}`,
-        type: "human" as const,
-        group: "humans" as const,
-        label: f.name,
-        desc: f.role || f.company || tr("真人", "Human"),
-        onAdd: async () => {
-          await addMember(chatId, { friendId: f.id, memberType: "human" });
-        },
-      }));
+      .map((f) => {
+        const originalName = (f.name || "").trim();
+        const displayName = resolveFriendDisplayName(f, originalName);
+        const desc = [
+          displayName !== originalName ? originalName : "",
+          f.role || f.company || tr("真人", "Human"),
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return {
+          key: `friend:${f.id}`,
+          type: "human" as const,
+          group: "humans" as const,
+          label: displayName,
+          desc,
+          onAdd: async () => {
+            await addMember(chatId, { friendId: f.id, memberType: "human" });
+          },
+        };
+      });
 
     const agentItems = agentPool
       .filter((a) => !usedAgentIds.has(a.id))
@@ -1975,6 +1994,7 @@ export default function ChatDetailScreen() {
     chatId,
     currentUserId,
     friends,
+    resolveFriendDisplayName,
     memberFilter,
     memberPoolAgents,
     memberPoolFriends,
@@ -4060,7 +4080,7 @@ export default function ChatDetailScreen() {
                             </View>
                           </Pressable>
                           <View style={styles.memberMain}>
-                            <Text style={styles.memberName}>{m.name}</Text>
+                            <Text style={styles.memberName}>{getMemberDisplayName(m)}</Text>
                             <Text style={styles.memberDesc} numberOfLines={1}>
                               {m.memberType === "human"
                                 ? tr("真人", "Human")
@@ -4232,7 +4252,7 @@ export default function ChatDetailScreen() {
                     const isSelf = isSelfThreadMember(m);
                     return (
                       <View key={m.id} testID={`chat-member-current-${toTestIdSegment(m.id || m.name)}`} style={styles.currentChip}>
-                        <Text style={styles.currentChipText}>{m.name}</Text>
+                        <Text style={styles.currentChipText}>{getMemberDisplayName(m)}</Text>
                         {canOperate ? (
                           <Pressable onPress={() => confirmRemoveThreadMember(m)}>
                             <Ionicons
