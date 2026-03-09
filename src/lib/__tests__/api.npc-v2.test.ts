@@ -1,7 +1,9 @@
 import {
   bindNPCKnowledge,
   bindNPCSkill,
+  createKnowledgeDataset,
   createNPC,
+  deleteKnowledgeDataset,
   deleteNPC,
   getNPC,
   listKnowledgeDatasets,
@@ -11,6 +13,7 @@ import {
   setAuthToken,
   unbindNPCKnowledge,
   unbindNPCSkill,
+  updateKnowledgeDataset,
   updateNPC,
 } from "../api";
 
@@ -245,6 +248,57 @@ describe("npc api v2 mapping", () => {
 
     const [deleteUrl, deleteInit] = fetchMock.mock.calls[9] as [string, RequestInit];
     expect(deleteUrl).toBe("https://api.example.com/v2/npc/npc_1");
+    expect(deleteInit.method).toBe("DELETE");
+  });
+
+  it("creates, updates, and deletes knowledge datasets through /v2/knowledge", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockResponse({
+          id: "ds_1",
+          user_id: "u_1",
+          name: "Release Notes",
+          entries: [{ id: "entry_1", dataset_id: "ds_1", type: "file", name: "release-notes.md" }],
+          created_at: 1741000000,
+          updated_at: 1741000010,
+        })
+      )
+      .mockResolvedValueOnce(
+        mockResponse({
+          id: "ds_1",
+          user_id: "u_1",
+          name: "Release Notes Updated",
+          entries: [{ id: "entry_1", dataset_id: "ds_1", type: "file", name: "release-notes.md" }],
+          created_at: 1741000000,
+          updated_at: 1741000015,
+        })
+      )
+      .mockResolvedValueOnce(mockResponse({ ok: true, id: "ds_1" }));
+
+    const created = await createKnowledgeDataset({
+      name: "Release Notes",
+      entries: [{ name: "release-notes.md", type: "file", fileUrl: "https://cdn.example.com/release-notes.md" }],
+    });
+    const updated = await updateKnowledgeDataset("ds_1", {
+      name: "Release Notes Updated",
+      entries: [{ name: "release-notes.md", type: "file", fileUrl: "https://cdn.example.com/release-notes.md" }],
+    });
+    const deleted = await deleteKnowledgeDataset("ds_1");
+
+    expect(created).toMatchObject({ id: "ds_1", name: "Release Notes" });
+    expect(updated).toMatchObject({ id: "ds_1", name: "Release Notes Updated" });
+    expect(deleted).toMatchObject({ ok: true, id: "ds_1" });
+
+    const [createUrl, createInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(createUrl).toBe("https://api.example.com/v2/knowledge");
+    expect(createInit.method).toBe("POST");
+
+    const [updateUrl, updateInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(updateUrl).toBe("https://api.example.com/v2/knowledge/ds_1");
+    expect(updateInit.method).toBe("PATCH");
+
+    const [deleteUrl, deleteInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(deleteUrl).toBe("https://api.example.com/v2/knowledge/ds_1");
     expect(deleteInit.method).toBe("DELETE");
   });
 });

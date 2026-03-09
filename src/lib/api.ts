@@ -13,6 +13,7 @@ import {
   NPC,
   NPCSkillBinding,
   RealtimeEvent,
+  SettingsSkillItem,
   TaskItem,
   ThreadDisplayLanguage,
   ThreadMember,
@@ -349,6 +350,28 @@ export interface CreateCustomSkillInput {
   enabled?: boolean;
 }
 
+export interface CreateKnowledgeDatasetInput {
+  name: string;
+  entries?: Array<{
+    type?: string;
+    name: string;
+    fileUrl?: string;
+    url?: string;
+    content?: string;
+  }>;
+}
+
+export interface UpdateKnowledgeDatasetInput {
+  name?: string;
+  entries?: Array<{
+    type?: string;
+    name: string;
+    fileUrl?: string;
+    url?: string;
+    content?: string;
+  }>;
+}
+
 export interface ExecuteCustomSkillInput {
   input: string;
   threadId?: string;
@@ -367,6 +390,7 @@ type V2SkillCatalogItem = {
   description?: unknown;
   category?: unknown;
   icon?: unknown;
+  installed?: unknown;
 };
 
 type V2UserSkill = {
@@ -375,7 +399,9 @@ type V2UserSkill = {
   description?: unknown;
   skill_content?: unknown;
   content?: unknown;
+  scope?: unknown;
   enabled?: unknown;
+  installed?: unknown;
   created_at?: unknown;
   updated_at?: unknown;
   version?: unknown;
@@ -1549,6 +1575,61 @@ export async function listKnowledgeDatasets(): Promise<KnowledgeDataset[]> {
     .filter((row): row is KnowledgeDataset => Boolean(row));
 }
 
+export async function createKnowledgeDataset(
+  payload: CreateKnowledgeDatasetInput
+): Promise<KnowledgeDataset> {
+  const created = await apiFetch<V2KnowledgeDataset>("/v2/knowledge", {
+    method: "POST",
+    body: JSON.stringify({
+      name: payload.name,
+      entries: (payload.entries || []).map((entry) => ({
+        type: entry.type || "file",
+        name: entry.name,
+        file_url: entry.fileUrl,
+        url: entry.url,
+        content: entry.content,
+      })),
+    }),
+  });
+  const normalized = normalizeKnowledgeDataset(created, 0);
+  if (!normalized) {
+    throw new Error("Create knowledge response missing id");
+  }
+  return normalized;
+}
+
+export async function updateKnowledgeDataset(
+  datasetId: string,
+  payload: UpdateKnowledgeDatasetInput
+): Promise<KnowledgeDataset> {
+  const updated = await apiFetch<V2KnowledgeDataset>(`/v2/knowledge/${encodeURIComponent(datasetId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: payload.name,
+      entries: payload.entries
+        ? payload.entries.map((entry) => ({
+            type: entry.type || "file",
+            name: entry.name,
+            file_url: entry.fileUrl,
+            url: entry.url,
+            content: entry.content,
+          }))
+        : undefined,
+    }),
+  });
+  const normalized = normalizeKnowledgeDataset(updated, 0);
+  if (!normalized) {
+    throw new Error("Update knowledge response missing id");
+  }
+  return normalized;
+}
+
+export async function deleteKnowledgeDataset(datasetId: string) {
+  return apiFetch<{ ok?: boolean; id?: string }>(`/v2/knowledge/${encodeURIComponent(datasetId)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function listNPCs(): Promise<NPC[]> {
   const payload = await apiFetch<{ list?: V2NPC[] } | V2NPC[]>("/v2/npc");
   const rows = Array.isArray(payload)
@@ -1664,6 +1745,10 @@ export async function listSkillCatalog() {
     logo: coerceString(item?.icon) || "",
     description: coerceString(item?.description) || "",
     type: "builtin",
+    source: "system" as const,
+    installed: Boolean(item?.installed),
+    editable: false,
+    removable: true,
     permissionScope: "chat:read",
     version: "v2",
     tags: [coerceString(item?.category) || "system"],
@@ -1691,6 +1776,32 @@ export async function listCustomSkills() {
   }));
 }
 
+export async function listInstalledSkillsV2(): Promise<SettingsSkillItem[]> {
+  const payload = await apiFetch<{ list?: V2UserSkill[] } | V2UserSkill[]>("/v2/skills");
+  const rows = Array.isArray(payload)
+    ? payload
+    : payload && Array.isArray(payload.list)
+      ? payload.list
+      : [];
+  return rows.map((item, index) => {
+    const scope = (coerceString(item?.scope) || "").toLowerCase();
+    const source = scope === "system" ? "system" : "user";
+    const version = String(coerceNumber(item?.version) || 1);
+    return {
+      id: coerceString(item?.id) || `v2_skill_${index}`,
+      name: coerceString(item?.name) || "Unnamed Skill",
+      description: coerceString(item?.description) || "",
+      version,
+      source,
+      installed: typeof item?.installed === "boolean" ? Boolean(item.installed) : true,
+      editable: source === "user",
+      removable: source === "system",
+      permissionScope: "chat:read",
+      markdown: coerceString(item?.skill_content) || coerceString(item?.content) || "",
+    };
+  });
+}
+
 export async function createCustomSkill(payload: CreateCustomSkillInput) {
   const created = await apiFetch<V2UserSkill>("/v2/skills", {
     method: "POST",
@@ -1712,6 +1823,13 @@ export async function createCustomSkill(payload: CreateCustomSkillInput) {
     createdAt: normalizeDateTime(created?.created_at),
     updatedAt: normalizeDateTime(created?.updated_at),
   };
+}
+
+export async function setV2SkillInstalled(skillId: string, install: boolean) {
+  return apiFetch<{ ok?: boolean }>(`/v2/skills/${encodeURIComponent(skillId)}/install`, {
+    method: "POST",
+    body: JSON.stringify({ install }),
+  });
 }
 
 export async function patchCustomSkill(

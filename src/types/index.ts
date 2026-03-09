@@ -177,6 +177,20 @@ export interface KnowledgeDataset {
   updatedAt: string;
 }
 
+export interface SettingsSkillItem {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  source: "system" | "user";
+  installed: boolean;
+  editable: boolean;
+  removable: boolean;
+  permissionScope?: string;
+  tags?: string[];
+  markdown?: string;
+}
+
 export interface CustomSkill {
   id: string;
   name: string;

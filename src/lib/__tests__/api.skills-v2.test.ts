@@ -2,9 +2,11 @@ import {
   createCustomSkill,
   deleteCustomSkill,
   executeCustomSkill,
+  listInstalledSkillsV2,
   listCustomSkills,
   listSkillCatalog,
   patchCustomSkill,
+  setV2SkillInstalled,
   setAuthToken,
 } from "../api";
 
@@ -40,7 +42,7 @@ describe("skills api v2 mapping", () => {
   it("lists skill catalog from /v2/skills/catalog", async () => {
     fetchMock.mockResolvedValue(
       mockResponse({
-        list: [{ id: "sys_1", name: "Summary", description: "desc", category: "writing", icon: "file" }],
+        list: [{ id: "sys_1", name: "Summary", description: "desc", category: "writing", icon: "file", installed: true }],
       })
     );
 
@@ -51,6 +53,9 @@ describe("skills api v2 mapping", () => {
       name: "Summary",
       description: "desc",
       type: "builtin",
+      source: "system",
+      installed: true,
+      removable: true,
       permissionScope: "chat:read",
       version: "v2",
       tags: ["writing"],
@@ -87,6 +92,49 @@ describe("skills api v2 mapping", () => {
     });
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://api.example.com/v2/skills");
+  });
+
+  it("lists installed skills from /v2/skills using scope as source truth", async () => {
+    fetchMock.mockResolvedValue(
+      mockResponse({
+        list: [
+          {
+            id: "sys_1",
+            name: "Summary",
+            description: "system desc",
+            scope: "system",
+            installed: true,
+            version: 1,
+          },
+          {
+            id: "sk_1",
+            name: "My Skill",
+            description: "custom desc",
+            scope: "user",
+            skill_content: "# SKILL",
+            installed: true,
+            version: 3,
+          },
+        ],
+      })
+    );
+
+    const rows = await listInstalledSkillsV2();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      id: "sys_1",
+      source: "system",
+      installed: true,
+      editable: false,
+      removable: true,
+    });
+    expect(rows[1]).toMatchObject({
+      id: "sk_1",
+      source: "user",
+      installed: true,
+      editable: true,
+      markdown: "# SKILL",
+    });
   });
 
   it("creates/patches/deletes via /v2/skills and execute via /v1/skills/{id}/execute", async () => {
@@ -149,5 +197,16 @@ describe("skills api v2 mapping", () => {
     const [u4, i4] = fetchMock.mock.calls[3] as [string, RequestInit];
     expect(u4).toBe("https://api.example.com/v1/skills/sk_1/execute");
     expect(i4.method).toBe("POST");
+  });
+
+  it("toggles system skill install through /v2/skills/{id}/install", async () => {
+    fetchMock.mockResolvedValue(mockResponse({ ok: true }));
+
+    await setV2SkillInstalled("sys_1", true);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.example.com/v2/skills/sys_1/install");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ install: true }));
   });
 });
