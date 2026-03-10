@@ -104,6 +104,7 @@ export default function HomeScreen() {
     agents,
     botConfig,
     resolveFriendDisplayName,
+    uiTheme,
     language,
     bootstrapReady,
     createFriend,
@@ -111,6 +112,7 @@ export default function HomeScreen() {
     removeAgent,
     removeFriend,
     refreshAll,
+    updateUiTheme,
   } = useAgentTown();
   const tr = useCallback((zh: string, en: string) => tx(language, zh, en), [language]);
   const profileAvatar = user?.avatar || botConfig.avatar;
@@ -817,6 +819,7 @@ export default function HomeScreen() {
         {isDesktopHome ? (
           <DesktopHome
             profileAvatar={profileAvatar}
+            uiTheme={uiTheme}
             language={language}
             bootstrapReady={bootstrapReady}
             openingAskAnything={openingAskAnything}
@@ -831,6 +834,7 @@ export default function HomeScreen() {
             onOpenThread={handleOpenThread}
             onOpenNpc={handleOpenNpc}
             onOpenConfig={() => router.push("/config" as never)}
+            onUpdateUiTheme={updateUiTheme}
             onOpenTownMap={() => router.push("/town-map" as never)}
             onOpenPeopleModal={() => setPeopleModal(true)}
             onOpenFriendModal={() => setFriendModal(true)}

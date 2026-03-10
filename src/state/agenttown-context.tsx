@@ -90,6 +90,10 @@ import {
   syncTaskReminderNotifications,
 } from "@/src/services/task-notifications";
 
+function uiThemeStorageKey(userID: string) {
+  return `agenttown.uiTheme.${userID}`;
+}
+
 interface AgentTownContextValue {
   botConfig: BotConfig;
   tasks: TaskItem[];
@@ -772,6 +776,18 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     [isSignedIn, userID]
   );
 
+  const persistUiTheme = useCallback(
+    async (next: UiTheme) => {
+      if (!isSignedIn || !userID) return;
+      try {
+        await AsyncStorage.setItem(uiThemeStorageKey(userID), next);
+      } catch {
+        // Ignore persistence failure.
+      }
+    },
+    [isSignedIn, userID]
+  );
+
   const markThreadRead = useCallback(async (threadId: string, lastReadSeqNo?: number) => {
     const normalizedThreadID = threadId.trim();
     if (!normalizedThreadID) return;
@@ -984,6 +1000,33 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
         if (!cancelled) {
           setThreadLanguageById({});
         }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, userID]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isSignedIn || !userID) {
+      setUiTheme("neo");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(uiThemeStorageKey(userID));
+        if (cancelled || !raw) return;
+        if (raw === "classic" || raw === "neo") {
+          setUiTheme(raw);
+        }
+      } catch {
+        // Ignore local theme load failure.
       }
     })();
 
@@ -1741,7 +1784,10 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
         }
       },
       updateHouseType: setMyHouseType,
-      updateUiTheme: setUiTheme,
+      updateUiTheme: (next) => {
+        setUiTheme(next);
+        void persistUiTheme(next);
+      },
       updateLanguage: setLanguage,
       updateThreadLanguage,
       updateVoiceModeEnabled: setVoiceModeEnabled,
@@ -2367,6 +2413,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     markThreadRead,
     patchThreadLanguageMap,
     persistFriendAliases,
+    persistUiTheme,
     refreshAll,
     refreshThreadMessages,
     shouldUseThreadMessageCache,

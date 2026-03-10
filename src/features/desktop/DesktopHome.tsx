@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -16,7 +16,7 @@ import { ChatListItem } from '@/src/components/ChatListItem';
 import { MiniAppDock } from '@/src/components/MiniAppDock';
 import { NpcListItem } from '@/src/components/NpcListItem';
 import { LoadingSkeleton, StateBanner } from '@/src/components/StateBlocks';
-import { ChatThread, NPC, AppLanguage } from '@/src/types';
+import { ChatThread, NPC, AppLanguage, UiTheme } from '@/src/types';
 
 export type DesktopPresenceItem = {
   id: string;
@@ -29,6 +29,7 @@ export type DesktopPresenceItem = {
 
 type DesktopHomeProps = {
   profileAvatar: string;
+  uiTheme: UiTheme;
   language: AppLanguage;
   bootstrapReady: boolean;
   openingAskAnything: boolean;
@@ -43,6 +44,7 @@ type DesktopHomeProps = {
   onOpenThread: (thread: ChatThread) => void;
   onOpenNpc: (npc: NPC) => void;
   onOpenConfig: () => void;
+  onUpdateUiTheme: (next: UiTheme) => void;
   onOpenTownMap: () => void;
   onOpenPeopleModal: () => void;
   onOpenFriendModal: () => void;
@@ -60,6 +62,7 @@ function roleIcon(role: DesktopPresenceItem['role']): React.ComponentProps<typeo
 
 export function DesktopHome({
   profileAvatar,
+  uiTheme,
   language,
   bootstrapReady,
   openingAskAnything,
@@ -74,6 +77,7 @@ export function DesktopHome({
   onOpenThread,
   onOpenNpc,
   onOpenConfig,
+  onUpdateUiTheme,
   onOpenTownMap,
   onOpenPeopleModal,
   onOpenFriendModal,
@@ -82,35 +86,122 @@ export function DesktopHome({
   onOpenThreadAvatarConfig,
   onOpenEntityConfig,
 }: DesktopHomeProps) {
+  const isNeo = uiTheme === 'neo';
+  const palette = useMemo(
+    () =>
+      isNeo
+        ? {
+            sidebarBg: 'rgba(7,10,20,0.72)',
+            sidebarBorder: 'rgba(255,255,255,0.08)',
+            mainText: '#f8fafc',
+            subText: 'rgba(148,163,184,0.92)',
+            iconShell: 'rgba(15,23,42,0.78)',
+            iconBorder: 'rgba(255,255,255,0.1)',
+            askBg: 'rgba(15,23,42,0.68)',
+            askBorder: 'rgba(255,255,255,0.08)',
+            askLeadBg: 'rgba(37,99,235,0.2)',
+            askLeadBorder: 'rgba(147,197,253,0.28)',
+            ghostButtonBg: 'rgba(15,23,42,0.68)',
+            ghostButtonBorder: 'rgba(255,255,255,0.1)',
+            primaryButtonBg: '#2563eb',
+            primaryButtonText: '#eff6ff',
+            cardBg: 'rgba(7,10,20,0.58)',
+            cardBorder: 'rgba(255,255,255,0.08)',
+            actionShellBg: 'rgba(37,99,235,0.18)',
+            actionShellBorder: 'rgba(147,197,253,0.22)',
+            presenceBg: 'rgba(15,23,42,0.62)',
+            presenceBorder: 'rgba(255,255,255,0.08)',
+            themeToggleBg: 'rgba(15,23,42,0.78)',
+            themeToggleBorder: 'rgba(255,255,255,0.1)',
+            themeToggleActiveBg: '#2563eb',
+            themeToggleActiveText: '#eff6ff',
+          }
+        : {
+            sidebarBg: 'rgba(255,255,255,0.78)',
+            sidebarBorder: 'rgba(148,163,184,0.22)',
+            mainText: '#0f172a',
+            subText: 'rgba(71,85,105,0.92)',
+            iconShell: 'rgba(255,255,255,0.82)',
+            iconBorder: 'rgba(148,163,184,0.28)',
+            askBg: 'rgba(255,255,255,0.88)',
+            askBorder: 'rgba(148,163,184,0.22)',
+            askLeadBg: 'rgba(191,219,254,0.52)',
+            askLeadBorder: 'rgba(96,165,250,0.3)',
+            ghostButtonBg: 'rgba(255,255,255,0.84)',
+            ghostButtonBorder: 'rgba(148,163,184,0.22)',
+            primaryButtonBg: '#2563eb',
+            primaryButtonText: '#eff6ff',
+            cardBg: 'rgba(255,255,255,0.72)',
+            cardBorder: 'rgba(148,163,184,0.18)',
+            actionShellBg: 'rgba(219,234,254,0.8)',
+            actionShellBorder: 'rgba(96,165,250,0.18)',
+            presenceBg: 'rgba(255,255,255,0.84)',
+            presenceBorder: 'rgba(148,163,184,0.16)',
+            themeToggleBg: 'rgba(255,255,255,0.84)',
+            themeToggleBorder: 'rgba(148,163,184,0.22)',
+            themeToggleActiveBg: '#2563eb',
+            themeToggleActiveText: '#eff6ff',
+          },
+    [isNeo]
+  );
+
   return (
     <View style={styles.shell}>
-      <View style={styles.sidebar}>
+      <View style={[styles.sidebar, { backgroundColor: palette.sidebarBg, borderColor: palette.sidebarBorder }]}>
         <View style={styles.sidebarHeader}>
-          <Pressable style={styles.profileChip} onPress={onOpenConfig}>
+          <Pressable
+            style={[styles.profileChip, { backgroundColor: palette.iconShell, borderColor: palette.askLeadBorder }]}
+            onPress={onOpenConfig}
+          >
             <Image source={{ uri: profileAvatar }} style={styles.profileAvatar} />
             <View style={styles.onlineDot} />
           </Pressable>
           <View style={styles.sidebarTitleWrap}>
-            <Text style={styles.sidebarTitle}>UsChat</Text>
-            <Text style={styles.sidebarSubtitle}>{tr('桌面沟通中心', 'Desktop communication hub')}</Text>
+            <Text style={[styles.sidebarTitle, { color: palette.mainText }]}>UsChat</Text>
+            <Text style={[styles.sidebarSubtitle, { color: palette.subText }]}>{tr('桌面沟通中心', 'Desktop communication hub')}</Text>
           </View>
-          <Pressable style={styles.headerIcon} onPress={onOpenPeopleModal}>
-            <Ionicons name="people-outline" size={18} color="rgba(226,232,240,0.92)" />
-          </Pressable>
+          <View style={styles.headerActions}>
+            <View style={[styles.themeToggle, { backgroundColor: palette.themeToggleBg, borderColor: palette.themeToggleBorder }]}>
+              <Pressable
+                style={[styles.themeToggleItem, !isNeo && { backgroundColor: palette.themeToggleActiveBg }]}
+                onPress={() => onUpdateUiTheme('classic')}
+              >
+                <Ionicons name="sunny-outline" size={14} color={!isNeo ? palette.themeToggleActiveText : palette.subText} />
+              </Pressable>
+              <Pressable
+                style={[styles.themeToggleItem, isNeo && { backgroundColor: palette.themeToggleActiveBg }]}
+                onPress={() => onUpdateUiTheme('neo')}
+              >
+                <Ionicons name="moon-outline" size={14} color={isNeo ? palette.themeToggleActiveText : palette.subText} />
+              </Pressable>
+            </View>
+            <Pressable
+              style={[styles.headerIcon, { backgroundColor: palette.iconShell, borderColor: palette.iconBorder }]}
+              onPress={onOpenPeopleModal}
+            >
+              <Ionicons name="people-outline" size={18} color={palette.mainText} />
+            </Pressable>
+          </View>
         </View>
 
-        <Pressable testID="desktop-home-mybot-entry" style={styles.askBar} onPress={() => void onOpenAskAnything()}>
-          <View style={styles.askLead}>
-            <Ionicons name="sparkles-outline" size={18} color="rgba(191,219,254,0.95)" />
+        <Pressable
+          testID="desktop-home-mybot-entry"
+          style={[styles.askBar, { backgroundColor: palette.askBg, borderColor: palette.askBorder }]}
+          onPress={() => void onOpenAskAnything()}
+        >
+          <View style={[styles.askLead, { backgroundColor: palette.askLeadBg, borderColor: palette.askLeadBorder }]}>
+            <Ionicons name="sparkles-outline" size={18} color={isNeo ? 'rgba(191,219,254,0.95)' : '#1d4ed8'} />
           </View>
           <View style={styles.askBody}>
-            <Text style={styles.askTitle}>MyBot</Text>
-            <Text style={styles.askSubtitle}>{tr('私有总结、待办和提醒', 'Private summaries, tasks, and reminders')}</Text>
+            <Text style={[styles.askTitle, { color: palette.mainText }]}>MyBot</Text>
+            <Text style={[styles.askSubtitle, { color: palette.subText }]}>
+              {tr('私有总结、待办和提醒', 'Private summaries, tasks, and reminders')}
+            </Text>
           </View>
           {openingAskAnything ? (
-            <ActivityIndicator size="small" color="rgba(226,232,240,0.8)" />
+            <ActivityIndicator size="small" color={palette.mainText} />
           ) : (
-            <Ionicons name="arrow-forward" size={18} color="rgba(226,232,240,0.82)" />
+            <Ionicons name="arrow-forward" size={18} color={palette.subText} />
           )}
         </Pressable>
 
@@ -143,16 +234,16 @@ export function DesktopHome({
               <RefreshControl
                 refreshing={refreshingChats}
                 onRefresh={() => void onRefreshChats()}
-                tintColor="rgba(226,232,240,0.92)"
+                tintColor={isNeo ? 'rgba(226,232,240,0.92)' : '#475569'}
                 colors={['#60a5fa']}
-                progressBackgroundColor="rgba(15,23,42,0.92)"
+                progressBackgroundColor={isNeo ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.96)'}
               />
             }
             renderItem={({ item }) => (
               <ChatListItem
                 chat={item}
                 language={language}
-                theme="neo"
+                theme={uiTheme}
                 onPress={() => onOpenThread(item)}
                 onAvatarPress={onOpenThreadAvatarConfig}
               />
@@ -161,23 +252,26 @@ export function DesktopHome({
         )}
 
         <View style={styles.sidebarFooter}>
-          <Pressable style={styles.sidebarCtaGhost} onPress={onOpenFriendModal}>
-            <Ionicons name="person-add-outline" size={16} color="rgba(226,232,240,0.9)" />
-            <Text style={styles.sidebarCtaGhostText}>{tr('加好友', 'Add Friend')}</Text>
+          <Pressable
+            style={[styles.sidebarCtaGhost, { backgroundColor: palette.ghostButtonBg, borderColor: palette.ghostButtonBorder }]}
+            onPress={onOpenFriendModal}
+          >
+            <Ionicons name="person-add-outline" size={16} color={palette.mainText} />
+            <Text style={[styles.sidebarCtaGhostText, { color: palette.mainText }]}>{tr('加好友', 'Add Friend')}</Text>
           </Pressable>
-          <Pressable style={styles.sidebarCtaPrimary} onPress={onOpenGroupModal}>
-            <Ionicons name="people-outline" size={16} color="#eff6ff" />
-            <Text style={styles.sidebarCtaPrimaryText}>{tr('建群', 'New Group')}</Text>
+          <Pressable style={[styles.sidebarCtaPrimary, { backgroundColor: palette.primaryButtonBg }]} onPress={onOpenGroupModal}>
+            <Ionicons name="people-outline" size={16} color={palette.primaryButtonText} />
+            <Text style={[styles.sidebarCtaPrimaryText, { color: palette.primaryButtonText }]}>{tr('建群', 'New Group')}</Text>
           </Pressable>
         </View>
       </View>
 
       <View style={styles.main}>
-        <View style={styles.heroCard}>
+        <View style={[styles.heroCard, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroEyebrow}>{tr('Mac 桌面版', 'Mac desktop')}</Text>
-            <Text style={styles.heroTitle}>{tr('聊天优先，像桌面 IM 一样工作', 'Chat-first collaboration for desktop')}</Text>
-            <Text style={styles.heroText}>
+            <Text style={[styles.heroEyebrow, { color: isNeo ? 'rgba(147,197,253,0.95)' : '#2563eb' }]}>{tr('Mac 桌面版', 'Mac desktop')}</Text>
+            <Text style={[styles.heroTitle, { color: palette.mainText }]}>{tr('聊天优先，像桌面 IM 一样工作', 'Chat-first collaboration for desktop')}</Text>
+            <Text style={[styles.heroText, { color: palette.subText }]}>
               {tr(
                 '把最近会话放在左侧，把群聊、私有 MyBot、NPC 协作和 Mini Apps 放在桌面工作台里。',
                 'Keep recent chats on the left and use the workspace for group threads, private MyBot help, NPC collaboration, and Mini Apps.'
@@ -185,27 +279,27 @@ export function DesktopHome({
             </Text>
           </View>
           <View style={styles.heroActions}>
-            <Pressable style={styles.heroPrimary} onPress={() => void onOpenAskAnything()}>
-              <Ionicons name="sparkles-outline" size={16} color="#eff6ff" />
-              <Text style={styles.heroPrimaryText}>MyBot</Text>
+            <Pressable style={[styles.heroPrimary, { backgroundColor: palette.primaryButtonBg }]} onPress={() => void onOpenAskAnything()}>
+              <Ionicons name="sparkles-outline" size={16} color={palette.primaryButtonText} />
+              <Text style={[styles.heroPrimaryText, { color: palette.primaryButtonText }]}>MyBot</Text>
             </Pressable>
-            <Pressable style={styles.heroGhost} onPress={onOpenTownMap}>
-              <Ionicons name="globe-outline" size={16} color="rgba(226,232,240,0.92)" />
-              <Text style={styles.heroGhostText}>{tr('世界地图', 'World Map')}</Text>
+            <Pressable style={[styles.heroGhost, { backgroundColor: palette.ghostButtonBg, borderColor: palette.ghostButtonBorder }]} onPress={onOpenTownMap}>
+              <Ionicons name="globe-outline" size={16} color={palette.mainText} />
+              <Text style={[styles.heroGhostText, { color: palette.mainText }]}>{tr('世界地图', 'World Map')}</Text>
             </Pressable>
-            <Pressable style={styles.heroGhost} onPress={onOpenAgents}>
-              <Ionicons name="hardware-chip-outline" size={16} color="rgba(226,232,240,0.92)" />
-              <Text style={styles.heroGhostText}>{tr('Bots / NPCs', 'Bots / NPCs')}</Text>
+            <Pressable style={[styles.heroGhost, { backgroundColor: palette.ghostButtonBg, borderColor: palette.ghostButtonBorder }]} onPress={onOpenAgents}>
+              <Ionicons name="hardware-chip-outline" size={16} color={palette.mainText} />
+              <Text style={[styles.heroGhostText, { color: palette.mainText }]}>{tr('Bots / NPCs', 'Bots / NPCs')}</Text>
             </Pressable>
           </View>
         </View>
 
         <View style={styles.workspaceGrid}>
-          <View style={[styles.card, styles.cardTall]}>
+          <View style={[styles.card, styles.cardTall, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>{tr('最近活跃成员', 'Active people')}</Text>
-              <Pressable style={styles.cardHeaderAction} onPress={onOpenPeopleModal}>
-                <Ionicons name="add" size={16} color="rgba(226,232,240,0.9)" />
+              <Text style={[styles.cardTitle, { color: palette.mainText }]}>{tr('最近活跃成员', 'Active people')}</Text>
+              <Pressable style={[styles.cardHeaderAction, { backgroundColor: palette.actionShellBg, borderColor: palette.actionShellBorder }]} onPress={onOpenPeopleModal}>
+                <Ionicons name="add" size={16} color={palette.mainText} />
               </Pressable>
             </View>
             <ScrollView style={styles.presencePanel} contentContainerStyle={styles.presencePanelContent}>
@@ -213,7 +307,7 @@ export function DesktopHome({
                 presence.map((item) => (
                   <Pressable
                     key={item.id}
-                    style={styles.presenceItem}
+                    style={[styles.presenceItem, { backgroundColor: palette.presenceBg, borderColor: palette.presenceBorder }]}
                     onPress={() =>
                       onOpenEntityConfig({
                         entityType: item.entityType,
@@ -249,8 +343,8 @@ export function DesktopHome({
                       </View>
                     </View>
                     <View style={styles.presenceMeta}>
-                      <Text style={styles.presenceName} numberOfLines={1}>{item.name}</Text>
-                      <Text style={styles.presenceRoleText}>
+                      <Text style={[styles.presenceName, { color: palette.mainText }]} numberOfLines={1}>{item.name}</Text>
+                      <Text style={[styles.presenceRoleText, { color: palette.subText }]}>
                         {item.role === 'npc'
                           ? 'NPC'
                           : item.role === 'bot'
@@ -258,20 +352,20 @@ export function DesktopHome({
                             : tr('联系人', 'Contact')}
                       </Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={14} color="rgba(148,163,184,0.82)" />
+                    <Ionicons name="chevron-forward" size={14} color={palette.subText} />
                   </Pressable>
                 ))
               ) : (
-                <Text style={styles.emptyText}>{tr('还没有联系人或 NPC。', 'No contacts or NPCs yet.')}</Text>
+                <Text style={[styles.emptyText, { color: palette.subText }]}>{tr('还没有联系人或 NPC。', 'No contacts or NPCs yet.')}</Text>
               )}
             </ScrollView>
           </View>
 
-          <View style={[styles.card, styles.cardTall]}>
+          <View style={[styles.card, styles.cardTall, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>{tr('NPC 协作区', 'NPC workspace')}</Text>
-              <Pressable style={styles.cardHeaderAction} onPress={onOpenAgents}>
-                <Ionicons name="open-outline" size={16} color="rgba(226,232,240,0.9)" />
+              <Text style={[styles.cardTitle, { color: palette.mainText }]}>{tr('NPC 协作区', 'NPC workspace')}</Text>
+              <Pressable style={[styles.cardHeaderAction, { backgroundColor: palette.actionShellBg, borderColor: palette.actionShellBorder }]} onPress={onOpenAgents}>
+                <Ionicons name="open-outline" size={16} color={palette.mainText} />
               </Pressable>
             </View>
             <ScrollView style={styles.npcPanel} contentContainerStyle={styles.npcPanelContent}>
@@ -279,22 +373,22 @@ export function DesktopHome({
                 npcList.map((npc) => <NpcListItem key={npc.id} npc={npc} onPress={() => onOpenNpc(npc)} />)
               ) : (
                 <View style={styles.emptyWrap}>
-                  <Text style={styles.emptyTitle}>{tr('还没有 NPC', 'No NPCs yet')}</Text>
-                  <Text style={styles.emptyText}>
+                  <Text style={[styles.emptyTitle, { color: palette.mainText }]}>{tr('还没有 NPC', 'No NPCs yet')}</Text>
+                  <Text style={[styles.emptyText, { color: palette.subText }]}>
                     {tr('创建自己的虚拟角色，或把它们加入群聊做协作。', 'Create your own roles and bring them into group conversations.')}
                   </Text>
-                  <Pressable style={styles.heroPrimary} onPress={onOpenAgents}>
-                    <Ionicons name="sparkles-outline" size={16} color="#eff6ff" />
-                    <Text style={styles.heroPrimaryText}>{tr('创建 NPC', 'Create NPC')}</Text>
+                  <Pressable style={[styles.heroPrimary, { backgroundColor: palette.primaryButtonBg }]} onPress={onOpenAgents}>
+                    <Ionicons name="sparkles-outline" size={16} color={palette.primaryButtonText} />
+                    <Text style={[styles.heroPrimaryText, { color: palette.primaryButtonText }]}>{tr('创建 NPC', 'Create NPC')}</Text>
                   </Pressable>
                 </View>
               )}
             </ScrollView>
           </View>
 
-          <View style={[styles.card, styles.cardWide]}>
+          <View style={[styles.card, styles.cardWide, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>{tr('Mini Apps 工作台', 'Mini Apps workspace')}</Text>
+              <Text style={[styles.cardTitle, { color: palette.mainText }]}>{tr('Mini Apps 工作台', 'Mini Apps workspace')}</Text>
             </View>
             <MiniAppDock />
           </View>
@@ -326,6 +420,11 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 14,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   sidebarTitleWrap: {
     flex: 1,
   },
@@ -349,6 +448,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     backgroundColor: 'rgba(15,23,42,0.78)',
+  },
+  themeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    gap: 4,
+  },
+  themeToggleItem: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   profileChip: {
     width: 52,
