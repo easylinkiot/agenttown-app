@@ -83,6 +83,7 @@ import {
 import { useAuth } from "@/src/state/auth-context";
 import { isE2ETestMode } from "@/src/utils/e2e";
 import { notifyMentionReceived } from "@/src/services/chat-notifications";
+import { isRemotePushRegistrationActive } from "@/src/services/push-registration";
 import {
   clearTaskReminderNotifications,
   ensureTaskReminderPermission,
@@ -1361,8 +1362,10 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
               highlight: true,
             })
           );
-          const thread = chatThreadsRef.current.find((item) => item.id === threadId);
-          void notifyMentionReceived(thread?.name || "UsChat", thread?.message || "", language);
+          if (!isRemotePushRegistrationActive()) {
+            const thread = chatThreadsRef.current.find((item) => item.id === threadId);
+            void notifyMentionReceived(thread?.name || "UsChat", thread?.message || "", language);
+          }
           break;
         }
         case "task.created":

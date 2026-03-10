@@ -36,11 +36,12 @@ export function collectMentionMatches(content: string, candidates: MentionDraftC
   const matched: { start: number; candidate: MentionDraftCandidate }[] = [];
   const seen = new Set<string>();
   const occupiedRanges: { start: number; end: number }[] = [];
+  const trailingBoundary = String.raw`(?=$|[\s,.;:!?，。！？；：、)\]"'”’】）])`;
 
   for (const candidate of ordered) {
     const token = candidate.token.trim();
     if (!token || seen.has(candidate.key)) continue;
-    const matcher = new RegExp(`(^|\\s)@${escapeMentionToken(token)}(?=\\s|$)`, "gi");
+    const matcher = new RegExp(`(^|\\s)@${escapeMentionToken(token)}${trailingBoundary}`, "gi");
     for (const result of safeContent.matchAll(matcher)) {
       const matchedText = result[0] || "";
       const prefixOffset = matchedText.startsWith("@") ? 0 : 1;

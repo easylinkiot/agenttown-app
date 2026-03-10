@@ -480,6 +480,16 @@ export interface RoleRepliesOutput {
   replies: ConversationMessage[];
 }
 
+export interface RegisterPushDeviceInput {
+  expoPushToken: string;
+  platform?: string;
+  appVersion?: string;
+}
+
+export interface UnregisterPushDeviceInput {
+  expoPushToken: string;
+}
+
 const DEFAULT_API_BASE_URL = "https://agenttown-api.kittens.cloud";
 
 type ApiErrorBody = {
@@ -1476,6 +1486,20 @@ export async function rejectFriendRequest(requestId: string) {
     `/v1/friend-requests/${encodeURIComponent(requestId)}/reject`,
     { method: "POST" }
   );
+}
+
+export async function registerPushDevice(payload: RegisterPushDeviceInput) {
+  return apiFetch<{ ok: boolean }>("/v1/notifications/push-devices", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function unregisterPushDevice(payload: UnregisterPushDeviceInput) {
+  return apiFetch<{ ok: boolean }>("/v1/notifications/push-devices", {
+    method: "DELETE",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function createFriendQR() {

@@ -13,6 +13,7 @@ import {
   authVerifyPasswordResetCode,
   setAuthToken,
 } from "@/src/lib/api";
+import { syncRemotePushRegistration, unregisterRemotePushRegistration } from "@/src/services/push-registration";
 import { AuthUser } from "@/src/types";
 import { getE2ELaunchArgs, isE2ETestMode } from "@/src/utils/e2e";
 
@@ -232,6 +233,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [applySession, e2eAuthEmail, e2eAuthPassword, isE2E]);
 
+  useEffect(() => {
+    if (!isHydrated || !token || !user?.id || isE2E || user.provider === "guest") {
+      return;
+    }
+    let cancelled = false;
+    void syncRemotePushRegistration(user.id).catch(() => {
+      if (cancelled) return;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isE2E, isHydrated, token, user?.id, user?.provider]);
+
   const signInAsGuest = useCallback(async () => {
     if (isE2E) {
       const now = new Date().toISOString();
@@ -395,8 +409,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    if (token && user?.provider !== "guest") {
+      await unregisterRemotePushRegistration().catch(() => undefined);
+    }
     await applySession(null);
-  }, [applySession]);
+  }, [applySession, token, user?.provider]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

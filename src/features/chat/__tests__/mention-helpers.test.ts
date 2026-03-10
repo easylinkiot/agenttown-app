@@ -46,4 +46,13 @@ describe("mention helpers", () => {
 
     expect(matches.map((item) => item.key)).toEqual(["all", "mybot", "alice"]);
   });
+
+  it("matches mentions followed by punctuation, including CJK punctuation", () => {
+    const matches = collectMentionMatches("@Elon Musk，设计看起来不错。请 @Alice！", [
+      createCandidate({ key: "elon", token: "Elon Musk", memberId: "member_elon", memberType: "role" }),
+      createCandidate({ key: "alice", token: "Alice", memberId: "member_alice", memberType: "human" }),
+    ]);
+
+    expect(matches.map((item) => item.key)).toEqual(["elon", "alice"]);
+  });
 });
