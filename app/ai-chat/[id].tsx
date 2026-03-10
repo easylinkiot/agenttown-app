@@ -60,6 +60,7 @@ import {
   formatConversationDisplayTime,
   parseConversationTimestamp,
 } from "@/src/features/chat/chat-helpers";
+import { ReadableMessageText } from "@/src/features/chat/ReadableMessageText";
 import { tx } from "@/src/i18n/translate";
 import {
   agentChat as agentChatApi,
@@ -3116,7 +3117,14 @@ export default function ChatDetailScreen() {
               </View>
             ) : null}
             {displayText && !hideImagePlaceholder ? (
-              <Text style={[styles.msgText, meFinal && styles.msgTextMe]}>{displayText}</Text>
+              <ReadableMessageText
+                text={displayText}
+                containerStyle={styles.msgTextBlocks}
+                paragraphTextStyle={[styles.msgText, meFinal && styles.msgTextMe]}
+                headingTextStyle={[styles.msgHeading, meFinal && styles.msgHeadingMe]}
+                bulletTextStyle={[styles.msgText, meFinal && styles.msgTextMe]}
+                bulletMarkerStyle={[styles.msgBulletMarker, meFinal && styles.msgBulletMarkerMe]}
+              />
             ) : null}
             {canToggleOriginal ? (
               <Pressable
@@ -3138,7 +3146,14 @@ export default function ChatDetailScreen() {
                 <Text style={[styles.originalLabel, meFinal && styles.originalLabelMe]}>
                   {tr("原文", "Original")}
                 </Text>
-                <Text style={[styles.originalText, meFinal && styles.originalTextMe]}>{sourceText}</Text>
+                <ReadableMessageText
+                  text={sourceText}
+                  containerStyle={styles.originalTextBlocks}
+                  paragraphTextStyle={[styles.originalText, meFinal && styles.originalTextMe]}
+                  headingTextStyle={[styles.originalHeading, meFinal && styles.originalHeadingMe]}
+                  bulletTextStyle={[styles.originalText, meFinal && styles.originalTextMe]}
+                  bulletMarkerStyle={[styles.originalBulletMarker, meFinal && styles.originalBulletMarkerMe]}
+                />
               </View>
             ) : null}
           </View>
@@ -4668,31 +4683,32 @@ const styles = StyleSheet.create({
     borderColor: "rgba(167,243,208,0.78)",
   },
   bubble: {
-    maxWidth: "86%",
-    borderRadius: 18,
+    maxWidth: "82%",
+    borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 6,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
+    gap: 8,
   },
   bubbleOther: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(15,23,42,0.66)",
+    borderColor: "rgba(148,163,184,0.24)",
   },
   bubbleMe: {
-    backgroundColor: "rgba(37,99,235,0.80)",
-    borderColor: "rgba(59,130,246,0.35)",
+    backgroundColor: "rgba(37,99,235,0.92)",
+    borderColor: "rgba(147,197,253,0.36)",
   },
   bubbleHighlight: {
     borderColor: "rgba(250,204,21,0.45)",
   },
   sender: {
-    color: "rgba(226,232,240,0.86)",
+    color: "rgba(226,232,240,0.92)",
     fontSize: 13,
     fontWeight: "900",
+    letterSpacing: 0.2,
   },
   messageBody: {
-    gap: 6,
+    gap: 9,
   },
   replyContext: {
     borderLeftWidth: 2,
@@ -4716,7 +4732,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   imageWrap: {
-    gap: 6,
+    gap: 8,
   },
   mediaUploadBadge: {
     alignSelf: "flex-start",
@@ -4753,13 +4769,31 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   msgText: {
-    color: "rgba(226,232,240,0.92)",
-    fontSize: 17,
-    lineHeight: 24,
-    fontWeight: "600",
+    color: "rgba(241,245,249,0.96)",
+    fontSize: 16,
+    lineHeight: 28,
+    fontWeight: "500",
   },
   msgTextMe: {
     color: "#f8fafc",
+  },
+  msgTextBlocks: {
+    gap: 10,
+  },
+  msgHeading: {
+    color: "rgba(255,255,255,0.98)",
+    fontSize: 15,
+    lineHeight: 23,
+    fontWeight: "800",
+  },
+  msgHeadingMe: {
+    color: "#ffffff",
+  },
+  msgBulletMarker: {
+    color: "rgba(191,219,254,0.96)",
+  },
+  msgBulletMarkerMe: {
+    color: "rgba(239,246,255,0.98)",
   },
   originalToggle: {
     alignSelf: "flex-start",
@@ -4793,11 +4827,29 @@ const styles = StyleSheet.create({
   originalText: {
     color: "rgba(203,213,225,0.94)",
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 23,
     fontWeight: "500",
   },
   originalTextMe: {
     color: "rgba(224,242,254,0.95)",
+  },
+  originalTextBlocks: {
+    gap: 8,
+  },
+  originalHeading: {
+    color: "rgba(226,232,240,0.98)",
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  originalHeadingMe: {
+    color: "rgba(239,246,255,0.98)",
+  },
+  originalBulletMarker: {
+    color: "rgba(148,163,184,0.95)",
+  },
+  originalBulletMarkerMe: {
+    color: "rgba(191,219,254,0.95)",
   },
   time: {
     color: "rgba(148,163,184,0.9)",
