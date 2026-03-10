@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { DEFAULT_MYBOT_AVATAR } from "@/src/constants/chat";
+import { formatConversationDisplayTime } from "@/src/features/chat/chat-helpers";
 import { AppLanguage, ChatThread, UiTheme } from "@/src/types";
 
 interface ChatListItemProps {
@@ -53,6 +54,7 @@ export function ChatListItem({
       ? "[语音通话]"
       : "[Voice Call]"
     : chat.message;
+  const displayTime = formatConversationDisplayTime(chat.time || "");
 
   return (
     <Pressable
@@ -148,7 +150,7 @@ export function ChatListItem({
               </Text>
             ) : null}
           </View>
-          <Text style={[styles.time, isNeo && styles.timeNeo]}>{chat.time}</Text>
+          <Text style={[styles.time, isNeo && styles.timeNeo]}>{displayTime}</Text>
         </View>
         <Text
           testID={`chat-list-item-preview-${chat.id}`}

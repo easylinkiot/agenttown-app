@@ -28,6 +28,7 @@ import { LoadingSkeleton, StateBanner } from "@/src/components/StateBlocks";
 import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
 import { subscribePendingFriendQrPayload } from "@/src/features/friends/friend-qr-scanner-bridge";
 import { getCachedAgentSessions, preloadAgentSessions } from "@/src/features/chat/agent-sessions-cache";
+import { parseConversationTimestamp } from "@/src/features/chat/chat-helpers";
 import { tx } from "@/src/i18n/translate";
 import {
   acceptFriendRequest,
@@ -143,6 +144,13 @@ export default function HomeScreen() {
       const au = a.unreadCount || 0;
       const bu = b.unreadCount || 0;
       if (au !== bu) return bu - au;
+      const at = parseConversationTimestamp(a.time || "");
+      const bt = parseConversationTimestamp(b.time || "");
+      if (typeof at === "number" && typeof bt === "number" && at !== bt) {
+        return bt - at;
+      }
+      if (typeof at === "number") return -1;
+      if (typeof bt === "number") return 1;
       return (b.time || "").localeCompare(a.time || "");
     });
     return sorted;

@@ -56,6 +56,10 @@ import {
   inferUploadFilename,
   normalizeMediaAssetForUpload,
 } from "@/src/features/chat/media-upload";
+import {
+  formatConversationDisplayTime,
+  parseConversationTimestamp,
+} from "@/src/features/chat/chat-helpers";
 import { tx } from "@/src/i18n/translate";
 import {
   agentChat as agentChatApi,
@@ -290,8 +294,8 @@ function toGiftedMessage(
 ): GiftedMessage {
   const senderID = (message.senderId || "").trim();
   const isMe = senderID !== "" && currentUserId ? senderID === currentUserId : Boolean(message.isMe);
-  const parsedTime = message.time ? Date.parse(message.time) : Number.NaN;
-  const createdAt = Number.isFinite(parsedTime) ? new Date(parsedTime) : new Date(fallbackTime);
+  const parsedTime = parseConversationTimestamp(message.time || "");
+  const createdAt = typeof parsedTime === "number" ? new Date(parsedTime) : new Date(fallbackTime);
 
   return {
     _id: message.id || `${fallbackTime}`,
@@ -3043,6 +3047,7 @@ export default function ChatDetailScreen() {
         : translatedRawText;
       const hasTranslatedText = !streamText && translatedText !== "";
       const displayText = hasTranslatedText ? translatedText : sourceText;
+      const displayTime = formatConversationDisplayTime(raw.time || "");
       const canToggleOriginal = hasTranslatedText && sourceText !== "" && sourceText !== displayText;
       const originalVisible = Boolean(showOriginalByMessageId[raw.id]);
       const ownAvatar = (user?.avatar || botConfig.avatar || "").trim();
@@ -3051,8 +3056,8 @@ export default function ChatDetailScreen() {
         avatarTag === "Bot" ? "bot" : avatarTag === "NPC" ? "npc" : "human";
       const messageAvatar = (() => {
         const senderAvatar = (raw.senderAvatar || "").trim();
+        if (meFinal) return ownAvatar || senderAvatar;
         if (senderAvatar) return senderAvatar;
-        if (meFinal) return ownAvatar;
         return (thread.avatar || botConfig.avatar || ownAvatar || "").trim();
       })();
       const handleAvatarPress = () => {
@@ -3187,7 +3192,7 @@ export default function ChatDetailScreen() {
               </Text>
             ) : null}
             {messageBody()}
-            {raw.time ? <Text style={styles.time}>{raw.time}</Text> : null}
+            {displayTime ? <Text style={styles.time}>{displayTime}</Text> : null}
           </Pressable>
           {meFinal ? (
             <Pressable style={styles.msgAvatarWrap} onPress={handleAvatarPress}>

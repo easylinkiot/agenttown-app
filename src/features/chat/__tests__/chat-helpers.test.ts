@@ -1,4 +1,5 @@
 import {
+  formatConversationDisplayTime,
   parseConversationTimestamp,
   sortConversationMessagesChronologically,
 } from "../chat-helpers";
@@ -40,5 +41,17 @@ describe("chat helpers", () => {
     ]);
 
     expect(messages.map((item) => item.id)).toEqual(["earlier", "later"]);
+  });
+
+  it("formats ISO timestamps in the device locale", () => {
+    const now = new Date();
+    now.setHours(10, 15, 0, 0);
+    const iso = now.toISOString();
+    expect(formatConversationDisplayTime(iso)).toBe(
+      new Date(iso).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    );
   });
 });

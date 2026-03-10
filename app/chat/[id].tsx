@@ -48,6 +48,7 @@ import {
   buildTaskItemFromCandidate,
 } from "@/src/features/chat/ask-ai-helpers";
 import {
+  formatConversationDisplayTime,
   parseConversationTimestamp,
   sortConversationMessagesChronologically,
 } from "@/src/features/chat/chat-helpers";
@@ -3244,6 +3245,7 @@ export default function ChatDetailScreen() {
         : translatedRawText;
       const hasTranslatedText = !streamText && translatedText !== "";
       const displayText = hasTranslatedText ? translatedText : sourceText;
+      const displayTime = formatConversationDisplayTime(raw.time || "");
       const canToggleOriginal = hasTranslatedText && sourceText !== "" && sourceText !== displayText;
       const originalVisible = Boolean(showOriginalByMessageId[raw.id]);
       const ownAvatar = (user?.avatar || botConfig.avatar || "").trim();
@@ -3252,8 +3254,8 @@ export default function ChatDetailScreen() {
         avatarTag === "Bot" ? "bot" : avatarTag === "NPC" ? "npc" : "human";
       const messageAvatar = (() => {
         const senderAvatar = (raw.senderAvatar || "").trim();
+        if (meFinal) return ownAvatar || senderAvatar;
         if (senderAvatar) return senderAvatar;
-        if (meFinal) return ownAvatar;
         return (thread.avatar || botConfig.avatar || ownAvatar || "").trim();
       })();
       const handleAvatarPress = () => {
@@ -3388,7 +3390,7 @@ export default function ChatDetailScreen() {
               </Text>
             ) : null}
             {messageBody()}
-            {raw.time ? <Text style={styles.time}>{raw.time}</Text> : null}
+            {displayTime ? <Text style={styles.time}>{displayTime}</Text> : null}
           </Pressable>
           {meFinal ? (
             <Pressable style={styles.msgAvatarWrap} onPress={handleAvatarPress}>
@@ -4364,6 +4366,9 @@ export default function ChatDetailScreen() {
                 ) : (
                   members.map((m) => {
                     const memberTag = inferAvatarTagFromMember(m);
+                    const isSelfMember = isSelfThreadMember(m);
+                    const resolvedMemberName = isSelfMember ? (user?.displayName || m.name) : m.name;
+                    const resolvedMemberAvatar = isSelfMember ? ((user?.avatar || m.avatar || "").trim()) : m.avatar;
                     return (
                       <Pressable
                         key={m.id}
@@ -4378,20 +4383,19 @@ export default function ChatDetailScreen() {
                             style={styles.memberAvatarWrap}
                             onPress={(e) => {
                               e.stopPropagation?.();
-                              const memberTag = inferAvatarTagFromMember(m);
                               openEntityConfig({
                                 entityType: memberTag === "Bot" ? "bot" : memberTag === "NPC" ? "npc" : "human",
                                 entityId:
                                   m.memberType === "human"
                                     ? m.friendId || m.id
                                     : m.npcId || m.agentId || m.id,
-                                name: m.name,
-                                avatar: m.avatar,
+                                name: resolvedMemberName,
+                                avatar: resolvedMemberAvatar,
                               });
                             }}
                           >
-                            {m.avatar ? (
-                              <Image source={{ uri: m.avatar }} style={styles.memberAvatar} />
+                            {resolvedMemberAvatar ? (
+                              <Image source={{ uri: resolvedMemberAvatar }} style={styles.memberAvatar} />
                             ) : (
                               <View style={[styles.memberAvatar, styles.memberAvatarFallback]}>
                                 <Ionicons name="person-outline" size={14} color="rgba(226,232,240,0.86)" />
@@ -4415,7 +4419,7 @@ export default function ChatDetailScreen() {
                             </View>
                           </Pressable>
                           <View style={styles.memberMain}>
-                            <Text style={styles.memberName}>{getMemberDisplayName(m)}</Text>
+                            <Text style={styles.memberName}>{isSelfMember ? resolvedMemberName : getMemberDisplayName(m)}</Text>
                             <Text style={styles.memberDesc} numberOfLines={1}>
                               {m.memberType === "human"
                                 ? tr("真人", "Human")

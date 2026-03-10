@@ -602,6 +602,89 @@ function normalizeMessageForUser(message: ConversationMessage, userID: string): 
   };
 }
 
+function syncCurrentUserProfileInMessages(
+  messagesByThread: Record<string, ConversationMessage[]>,
+  userID: string,
+  displayName?: string,
+  avatar?: string
+) {
+  const currentUserId = (userID || "").trim();
+  const nextDisplayName = (displayName || "").trim();
+  const nextAvatar = (avatar || "").trim();
+  if (!currentUserId || (!nextDisplayName && !nextAvatar)) {
+    return messagesByThread;
+  }
+
+  let changed = false;
+  const nextEntries: Record<string, ConversationMessage[]> = {};
+  for (const [threadId, messages] of Object.entries(messagesByThread)) {
+    let threadChanged = false;
+    const nextMessages = messages.map((message) => {
+      const senderId = (message.senderId || "").trim();
+      const isOwnMessage = senderId ? senderId === currentUserId : Boolean(message.isMe);
+      if (!isOwnMessage) return message;
+
+      const mergedName = nextDisplayName || message.senderName || "";
+      const mergedAvatar = nextAvatar || message.senderAvatar || "";
+      if (message.senderName === mergedName && message.senderAvatar === mergedAvatar) {
+        return message;
+      }
+
+      threadChanged = true;
+      return {
+        ...message,
+        senderName: mergedName,
+        senderAvatar: mergedAvatar,
+      };
+    });
+    nextEntries[threadId] = threadChanged ? nextMessages : messages;
+    changed = changed || threadChanged;
+  }
+
+  return changed ? nextEntries : messagesByThread;
+}
+
+function syncCurrentUserProfileInThreadMembers(
+  threadMembers: Record<string, ThreadMember[]>,
+  userID: string,
+  displayName?: string,
+  avatar?: string
+) {
+  const currentUserId = (userID || "").trim();
+  const nextDisplayName = (displayName || "").trim();
+  const nextAvatar = (avatar || "").trim();
+  if (!currentUserId || (!nextDisplayName && !nextAvatar)) {
+    return threadMembers;
+  }
+
+  let changed = false;
+  const nextEntries: Record<string, ThreadMember[]> = {};
+  for (const [threadId, members] of Object.entries(threadMembers)) {
+    let threadChanged = false;
+    const nextMembers = members.map((member) => {
+      const isSelfMember = member.memberType === "human" && (member.id || "").trim() === currentUserId;
+      if (!isSelfMember) return member;
+
+      const mergedName = nextDisplayName || member.name || "";
+      const mergedAvatar = nextAvatar || member.avatar || "";
+      if (member.name === mergedName && member.avatar === mergedAvatar) {
+        return member;
+      }
+
+      threadChanged = true;
+      return {
+        ...member,
+        name: mergedName,
+        avatar: mergedAvatar,
+      };
+    });
+    nextEntries[threadId] = threadChanged ? nextMembers : members;
+    changed = changed || threadChanged;
+  }
+
+  return changed ? nextEntries : threadMembers;
+}
+
 export function AgentTownProvider({ children }: { children: React.ReactNode }) {
   const isE2E = isE2ETestMode();
   const { isSignedIn, user } = useAuth();
@@ -621,6 +704,15 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     messagesByThreadRef.current = messagesByThread;
   }, [messagesByThread]);
+  useEffect(() => {
+    if (!userID) return;
+    setMessagesByThread((previous) =>
+      syncCurrentUserProfileInMessages(previous, userID, user?.displayName, user?.avatar)
+    );
+    setThreadMembers((previous) =>
+      syncCurrentUserProfileInThreadMembers(previous, userID, user?.displayName, user?.avatar)
+    );
+  }, [user?.avatar, user?.displayName, userID]);
   const [friends, setFriends] = useState<Friend[]>(defaultFriends);
   const friendsRef = useRef<Friend[]>(defaultFriends);
   useEffect(() => {

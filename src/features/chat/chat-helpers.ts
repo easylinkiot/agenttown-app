@@ -51,6 +51,64 @@ export function formatNowTime() {
   });
 }
 
+export function formatConversationDisplayTime(value: string) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return "";
+
+  const normalized = trimmed.toLowerCase();
+  if (normalized === "now" || normalized === "just now" || trimmed === "刚刚") {
+    return trimmed;
+  }
+
+  const parsed = Date.parse(trimmed);
+  if (Number.isFinite(parsed)) {
+    const date = new Date(parsed);
+    const now = new Date();
+    const sameDay =
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate();
+
+    if (sameDay) {
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+
+    const sameYear = date.getFullYear() === now.getFullYear();
+    return date.toLocaleString([], sameYear
+      ? {
+          month: "numeric",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }
+      : {
+          year: "numeric",
+          month: "numeric",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+  }
+
+  const timeOnlyMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(trimmed);
+  if (timeOnlyMatch) {
+    const hours = Number(timeOnlyMatch[1]);
+    const minutes = Number(timeOnlyMatch[2]);
+    const seconds = Number(timeOnlyMatch[3] || "0");
+    const local = new Date();
+    local.setHours(hours, minutes, seconds, 0);
+    return local.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return trimmed;
+}
+
 export function parseConversationTimestamp(value: string): number | null {
   const trimmed = (value || "").trim();
   if (!trimmed) return null;
