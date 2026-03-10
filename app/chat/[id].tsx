@@ -57,6 +57,12 @@ import {
   normalizeMediaAssetForUpload,
 } from "@/src/features/chat/media-upload";
 import {
+  bucketMyBotReminderTasks,
+  buildMyBotTaskPayload,
+  parseMyBotTaskDrafts,
+  type MyBotTaskDraft,
+} from "@/src/features/chat/mybot-helpers";
+import {
   collectMentionMatches,
   extractActiveMention,
   replaceActiveMention,
@@ -72,6 +78,7 @@ import { MentionPickerModal } from "@/src/features/chat/MentionPickerModal";
 import { tx } from "@/src/i18n/translate";
 import {
   agentChat as agentChatApi,
+  aiJSON,
   aiText,
   createTask as createTaskApi,
   formatApiError,
@@ -107,6 +114,7 @@ import { isE2ETestMode } from "@/src/utils/e2e";
 type MemberFilter = "all" | "human" | "agent" | "role";
 type GroupReplyMode = "all" | "mention";
 type TranslationMode = "off" | ThreadDisplayLanguage;
+type MyBotMode = "advice" | "tasks" | "reminders";
 type MemberCandidate = {
   key: string;
   type: "human" | "agent" | "role";
@@ -237,6 +245,19 @@ function formatMediaDuration(totalSeconds?: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatTaskDueAtLabel(value?: string) {
+  const raw = (value || "").trim();
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (!Number.isFinite(parsed.getTime())) return raw;
+  return parsed.toLocaleString([], {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function isImagePlaceholderText(text: string) {
@@ -510,6 +531,7 @@ export default function ChatDetailScreen() {
   const highlightMessageId = String(params.highlightMessageId || "");
 
   const {
+    tasks,
     chatThreads,
     messagesByThread,
     threadMembers,
@@ -597,6 +619,34 @@ export default function ChatDetailScreen() {
   const messages = useMemo(
     () => sortConversationMessagesChronologically(messagesByThread[chatId] || EMPTY_MESSAGES),
     [messagesByThread, chatId]
+  );
+  const currentUserTaskAssignee = useMemo(
+    () => (user?.displayName || user?.email || tr("我", "Me")).trim() || tr("我", "Me"),
+    [tr, user?.displayName, user?.email]
+  );
+  const myBotReminderBuckets = useMemo(
+    () => bucketMyBotReminderTasks(tasks, chatId),
+    [chatId, tasks]
+  );
+  const myBotQuickPrompts = useMemo(
+    () => [
+      {
+        key: "summary",
+        label: tr("总结", "Summary"),
+        prompt: tr("请总结这轮讨论的关键决定、分歧和下一步。", "Summarize the key decisions, disagreements, and next steps from this discussion."),
+      },
+      {
+        key: "advice",
+        label: tr("建议", "Advice"),
+        prompt: tr("如果我是这个群的负责人，下一步最值得推进的三件事是什么？", "If I am the owner of this group, what are the three most important next steps?"),
+      },
+      {
+        key: "reply",
+        label: tr("回复草稿", "Draft"),
+        prompt: tr("帮我起草一条简洁、明确、能推动事情继续的群回复。", "Draft a concise group reply that keeps the work moving."),
+      },
+    ],
+    [tr]
   );
   const linkedFriend = useMemo(() => friends.find((item) => item.threadId === chatId), [chatId, friends]);
   const currentUserId = (user?.id || "").trim();
@@ -1854,6 +1904,12 @@ export default function ChatDetailScreen() {
   const [myBotAnswer, setMyBotAnswer] = useState<string | null>(null);
   const [myBotError, setMyBotError] = useState<string | null>(null);
   const [myBotBusy, setMyBotBusy] = useState(false);
+  const [myBotMode, setMyBotMode] = useState<MyBotMode>("advice");
+  const [myBotTaskDrafts, setMyBotTaskDrafts] = useState<MyBotTaskDraft[]>([]);
+  const [myBotTaskError, setMyBotTaskError] = useState<string | null>(null);
+  const [myBotTaskBusy, setMyBotTaskBusy] = useState(false);
+  const [myBotTaskSaveBusy, setMyBotTaskSaveBusy] = useState(false);
+  const [imageViewerState, setImageViewerState] = useState<{ uri: string; label?: string } | null>(null);
 
   const [memberModal, setMemberModal] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
@@ -2372,6 +2428,129 @@ export default function ChatDetailScreen() {
     [botConfig.systemInstruction, chatId, messages, myBotBusy, thread.id, thread.name, tr]
   );
 
+  const openThreadTasks = useCallback(() => {
+    const routeTargetType = ((thread.targetType || "").trim() || (thread.isGroup ? "group" : "user")).toLowerCase();
+    const routeFriendUserId = (linkedFriend?.userId || "").trim();
+    const routeRawTargetId = (thread.targetId || "").trim();
+    const routeTargetId =
+      routeTargetType === "user"
+        ? routeFriendUserId || routeRawTargetId
+        : routeRawTargetId || chatId;
+    const routeChatUserId = routeTargetType === "user" ? routeFriendUserId : "";
+
+    return router.push({
+      pathname: "/chat/tasks",
+      params: {
+        threadId: chatId,
+        threadName: thread.name || "",
+        sourceSessionId: chatId,
+        targetType: routeTargetType,
+        targetId: routeTargetId,
+        chatUserId: routeChatUserId,
+      },
+    } as never);
+  }, [chatId, linkedFriend?.userId, router, thread.isGroup, thread.name, thread.targetId, thread.targetType]);
+
+  const closeMyBotPanel = useCallback(() => {
+    Keyboard.dismiss();
+    setMyBotPanel(false);
+  }, []);
+
+  const openImageViewer = useCallback((uri?: string, label?: string) => {
+    const safeUri = (uri || "").trim();
+    if (!safeUri) return;
+    Keyboard.dismiss();
+    setImageViewerState({ uri: safeUri, label: (label || "").trim() || undefined });
+  }, []);
+
+  const closeImageViewer = useCallback(() => {
+    setImageViewerState(null);
+  }, []);
+
+  const handleMyBotModeChange = useCallback((mode: MyBotMode) => {
+    Keyboard.dismiss();
+    setMyBotMode(mode);
+  }, []);
+
+  const extractMyBotTasks = useCallback(async () => {
+    if (myBotTaskBusy || myBotTaskSaveBusy) return;
+    setMyBotTaskBusy(true);
+    setMyBotTaskError(null);
+
+    try {
+      const transcript = messages
+        .slice(-60)
+        .map((message) => {
+          const sender = (message.senderName || (message.isMe ? tr("我", "Me") : tr("成员", "Member"))).trim();
+          const content = normalizeDisplayedContent(message.content || "", message.senderName).trim();
+          if (!content) return "";
+          return `${sender}: ${content}`;
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      const prompt = [
+        `${tr("群聊", "Group")}: ${thread.name}`,
+        `${tr("主人", "Owner")}: ${currentUserTaskAssignee}`,
+        "",
+        tr("请从下面的群聊上下文里，只提取适合当前主人跟进的待办事项。", "Extract only the tasks that the current owner should follow up on from the group context below."),
+        tr("如果明确属于别人且主人不需要跟进，不要输出。", "If an item clearly belongs to someone else and the owner does not need to follow up, do not include it."),
+        tr("若没有明确截止时间，dueAt 置空字符串。若有截止时间，必须输出 ISO-8601。", "If no deadline is explicit, set dueAt to an empty string. If a deadline exists, output ISO-8601."),
+        tr('只返回 JSON，格式：{"tasks":[{"title":"","assignee":"","priority":"High|Medium|Low","dueAt":"","reason":""}]}.', 'Return JSON only using this shape: {"tasks":[{"title":"","assignee":"","priority":"High|Medium|Low","dueAt":"","reason":""}]}.'),
+        "",
+        tr("上下文：", "Context:"),
+        transcript || tr("(空)", "(empty)"),
+      ].join("\n");
+
+      const result = await aiJSON({
+        prompt,
+        systemInstruction: tr(
+          "你是 MyBot，只为主人整理可执行任务。禁止返回 markdown，禁止额外解释。",
+          "You are MyBot. Extract only executable owner tasks. Do not return markdown or extra explanation."
+        ),
+        fallback: '{"tasks":[]}',
+      });
+
+      const drafts = parseMyBotTaskDrafts(result.jsonText || "", currentUserTaskAssignee);
+      setMyBotTaskDrafts(drafts);
+      if (drafts.length === 0) {
+        setMyBotTaskError(tr("没有识别到明确待办。你可以先继续讨论，或手动去任务页补充。", "No clear tasks found yet. Keep discussing or add them manually in Tasks."));
+      }
+    } catch (err) {
+      setMyBotTaskError(formatApiError(err));
+    } finally {
+      setMyBotTaskBusy(false);
+    }
+  }, [currentUserTaskAssignee, messages, myBotTaskBusy, myBotTaskSaveBusy, thread.name, tr]);
+
+  const createMyBotTasks = useCallback(async (drafts: MyBotTaskDraft[]) => {
+    if (drafts.length === 0 || myBotTaskSaveBusy) return;
+    setMyBotTaskSaveBusy(true);
+    setMyBotTaskError(null);
+    try {
+      const payloads = drafts.map((draft) =>
+        buildMyBotTaskPayload(draft, {
+          owner: currentUserTaskAssignee,
+          targetType: (thread.targetType || "").trim() || (thread.isGroup ? "group" : "user"),
+          targetId: (thread.targetId || "").trim() || chatId || "root",
+          sourceThreadId: chatId || undefined,
+        })
+      );
+      await Promise.all(payloads.map((payload) => createTaskApi(payload)));
+      await refreshAll().catch(() => {
+        // Keep the panel usable even if refresh is transiently unavailable.
+      });
+      setMyBotTaskDrafts((current) =>
+        current.filter((draft) => !drafts.some((item) => item.title === draft.title && item.dueAt === draft.dueAt))
+      );
+      setMyBotMode("reminders");
+    } catch (err) {
+      setMyBotTaskError(formatApiError(err));
+    } finally {
+      setMyBotTaskSaveBusy(false);
+    }
+  }, [chatId, currentUserTaskAssignee, myBotTaskSaveBusy, refreshAll, thread.isGroup, thread.targetId, thread.targetType]);
+
   const requestOlder = async () => {
     if (aiAgentMode) return;
     if (!hasUserScrolled || loadingOlder || !hasMore || !chatId) return;
@@ -2844,6 +3023,7 @@ export default function ChatDetailScreen() {
   const runGroupMyBot = async () => {
     const question = myBotQuestion.trim();
     if (!question || myBotBusy) return;
+    Keyboard.dismiss();
     await requestPrivateMyBotReply(question);
   };
 
@@ -3309,7 +3489,9 @@ export default function ChatDetailScreen() {
                     </Text>
                   </View>
                 ) : null}
-                <Image source={{ uri: previewImageUri }} style={styles.imagePreview} />
+                <Pressable onPress={() => openImageViewer(previewImageUri, raw.imageName)} style={styles.imagePreviewButton}>
+                  <Image source={{ uri: previewImageUri }} style={styles.imagePreview} resizeMode="cover" />
+                </Pressable>
                 {raw.imageName ? <Text style={styles.imageLabel}>{raw.imageName}</Text> : null}
               </View>
             ) : null}
@@ -3429,6 +3611,7 @@ export default function ChatDetailScreen() {
       handleMessagePress,
       highlightMessageId,
       openEntityConfig,
+      openImageViewer,
       streamingById,
       threadDisplayLanguage,
       translationEnabled,
@@ -3673,9 +3856,13 @@ export default function ChatDetailScreen() {
                     ]}
                     testID="chat-mybot-panel-button"
                     onPress={() => {
+                      Keyboard.dismiss();
+                      setMyBotMode("advice");
                       setMyBotQuestion("");
                       setMyBotAnswer(null);
                       setMyBotError(null);
+                      setMyBotTaskDrafts([]);
+                      setMyBotTaskError(null);
                       setMyBotPanel(true);
                     }}
                   >
@@ -3703,30 +3890,7 @@ export default function ChatDetailScreen() {
                 <Pressable
                   testID="chat-task-nav-button"
                   style={styles.headerIcon}
-                  onPress={() => {
-                    const routeTargetType = ((thread.targetType || "").trim() || (thread.isGroup ? "group" : "user")).toLowerCase();
-                    const routeFriendUserId = (linkedFriend?.userId || "").trim();
-                    const routeRawTargetId = (thread.targetId || "").trim();
-                    const routeTargetId =
-                      routeTargetType === "user"
-                        ? routeFriendUserId || routeRawTargetId
-                        : routeRawTargetId || chatId;
-                    const routeChatUserId =
-                      routeTargetType === "user"
-                        ? routeFriendUserId
-                        : "";
-                    return router.push({
-                      pathname: "/chat/tasks",
-                      params: {
-                        threadId: chatId,
-                        threadName: thread.name || "",
-                        sourceSessionId: chatId,
-                        targetType: routeTargetType,
-                        targetId: routeTargetId,
-                        chatUserId: routeChatUserId,
-                      },
-                    } as never);
-                  }}
+                  onPress={openThreadTasks}
                 >
                   <TaskNavIcon />
                 </Pressable>
@@ -4231,15 +4395,26 @@ export default function ChatDetailScreen() {
           </Pressable>
         </Modal>
 
-        <Modal visible={myBotPanel} transparent animationType="fade" onRequestClose={() => setMyBotPanel(false)}>
-          <Pressable style={styles.modalOverlay} onPress={() => setMyBotPanel(false)}>
-            <Pressable testID="chat-mybot-panel" style={styles.myBotCard} onPress={() => null}>
+        <Modal visible={myBotPanel} transparent animationType="fade" onRequestClose={closeMyBotPanel}>
+          <Pressable style={styles.modalOverlay} onPress={closeMyBotPanel}>
+            <KeyboardAvoidingView
+              style={styles.myBotAvoid}
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              keyboardVerticalOffset={Math.max(insets.top, 8)}
+            >
+            <Pressable testID="chat-mybot-panel" style={styles.myBotCard} onPress={Keyboard.dismiss}>
               <View pointerEvents="none" style={styles.myBotDecorLayer}>
                 <View style={[styles.myBotOrb, styles.myBotOrbPrimary]} />
                 <View style={[styles.myBotOrb, styles.myBotOrbSecondary]} />
                 <View style={[styles.myBotOrb, styles.myBotOrbAccent]} />
                 <View style={styles.myBotGlowBand} />
               </View>
+              <ScrollView
+                style={styles.myBotBodyScroll}
+                contentContainerStyle={styles.myBotBodyContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
               <View style={styles.myBotContent}>
                 <View style={styles.myBotHero}>
                   <View style={styles.myBotHeroLeft}>
@@ -4261,69 +4436,274 @@ export default function ChatDetailScreen() {
                       </Text>
                     </View>
                   </View>
-                  <Pressable style={styles.closeTiny} onPress={() => setMyBotPanel(false)}>
+                  <Pressable style={styles.closeTiny} onPress={closeMyBotPanel}>
                     <Ionicons name="close" size={16} color="rgba(226,232,240,0.85)" />
                   </Pressable>
                 </View>
-                <View style={styles.myBotSection}>
-                  <Text style={styles.myBotLabel}>{tr("问题", "Question")}</Text>
-                  <TextInput
-                    value={myBotQuestion}
-                    onChangeText={setMyBotQuestion}
-                    placeholder={tr("例如：请总结这轮讨论的关键决定和待办", "For example: summarize the key decisions and action items from this discussion")}
-                    placeholderTextColor="rgba(148,163,184,0.9)"
-                    multiline
-                    style={styles.myBotInput}
-                    editable={!myBotBusy}
-                    autoComplete="off"
-                    textContentType="oneTimeCode"
-                    importantForAutofill="no"
-                  />
+                <View style={styles.myBotModeRow}>
+                  {([
+                    { key: "advice", zh: "建议", en: "Advice" },
+                    { key: "tasks", zh: "待办", en: "Tasks" },
+                    { key: "reminders", zh: "提醒", en: "Reminders" },
+                  ] as const).map((item) => {
+                    const active = myBotMode === item.key;
+                    return (
+                      <Pressable
+                        key={item.key}
+                        style={[styles.myBotModeChip, active && styles.myBotModeChipActive]}
+                        onPress={() => handleMyBotModeChange(item.key)}
+                      >
+                        <Text style={[styles.myBotModeChipText, active && styles.myBotModeChipTextActive]}>
+                          {tr(item.zh, item.en)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
-                {myBotError ? <Text style={styles.aiError}>{myBotError}</Text> : null}
-                <View style={styles.myBotSection}>
-                  <View style={styles.myBotAnswerHeader}>
-                    <Text style={styles.myBotLabel}>{tr("回答", "Answer")}</Text>
-                    <Text style={styles.myBotPrivateHint}>{tr("仅自己可见", "Only visible to you")}</Text>
-                  </View>
-                  {myBotAnswer ? (
-                    <ScrollView style={styles.myBotAnswerScroll} contentContainerStyle={styles.myBotAnswerScrollContent}>
-                      <View style={styles.aiAnswerBox}>
-                        <Text style={styles.aiAnswerText}>{myBotAnswer}</Text>
-                      </View>
+                {myBotMode === "advice" ? (
+                  <>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.myBotPromptRow}
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {myBotQuickPrompts.map((item) => (
+                        <Pressable
+                          key={item.key}
+                          style={styles.myBotPromptChip}
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setMyBotQuestion(item.prompt);
+                          }}
+                        >
+                          <Text style={styles.myBotPromptChipText}>{item.label}</Text>
+                        </Pressable>
+                      ))}
                     </ScrollView>
-                  ) : (
-                    <View style={styles.myBotEmptyState}>
-                      <Text style={styles.myBotEmptyText}>
+                    <View style={styles.myBotSection}>
+                      <Text style={styles.myBotLabel}>{tr("问题", "Question")}</Text>
+                      <TextInput
+                        value={myBotQuestion}
+                        onChangeText={setMyBotQuestion}
+                        placeholder={tr(
+                          "例如：请总结这轮讨论的关键决定和待办",
+                          "For example: summarize the key decisions and action items from this discussion"
+                        )}
+                        placeholderTextColor="rgba(148,163,184,0.9)"
+                        multiline
+                        blurOnSubmit
+                        returnKeyType="done"
+                        onSubmitEditing={Keyboard.dismiss}
+                        style={styles.myBotInput}
+                        editable={!myBotBusy}
+                        autoComplete="off"
+                        textContentType="oneTimeCode"
+                        importantForAutofill="no"
+                      />
+                    </View>
+                    {myBotError ? <Text style={styles.aiError}>{myBotError}</Text> : null}
+                    <View style={styles.myBotSection}>
+                      <View style={styles.myBotAnswerHeader}>
+                        <Text style={styles.myBotLabel}>{tr("回答", "Answer")}</Text>
+                        <Text style={styles.myBotPrivateHint}>{tr("仅自己可见", "Only visible to you")}</Text>
+                      </View>
+                      {myBotAnswer ? (
+                        <ScrollView style={styles.myBotAnswerScroll} contentContainerStyle={styles.myBotAnswerScrollContent}>
+                          <View style={styles.aiAnswerBox}>
+                            <Text style={styles.aiAnswerText}>{myBotAnswer}</Text>
+                          </View>
+                        </ScrollView>
+                      ) : (
+                        <View style={styles.myBotEmptyState}>
+                          <Text style={styles.myBotEmptyText}>
+                            {tr(
+                              "输入你的问题后，MyBot 会在这里给出私有建议。",
+                              "Ask your question and MyBot will return a private suggestion here."
+                            )}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </>
+                ) : null}
+                {myBotMode === "tasks" ? (
+                  <>
+                    <View style={styles.myBotSection}>
+                      <Text style={styles.myBotLabel}>{tr("待办提取", "Task extraction")}</Text>
+                      <Text style={styles.myBotHintText}>
                         {tr(
-                          "输入你的问题后，MyBot 会在这里给出私有建议。",
-                          "Ask your question and MyBot will return a private suggestion here."
+                          "MyBot 会从当前群上下文中提取适合你本人跟进的待办。确认后才会创建，并自动按截止时间提醒。",
+                          "MyBot extracts the action items you personally should follow up on. Tasks are only created after confirmation, and reminders follow the due time automatically."
                         )}
                       </Text>
                     </View>
-                  )}
-                </View>
+                    {myBotTaskError ? <Text style={styles.aiError}>{myBotTaskError}</Text> : null}
+                    {myBotTaskBusy ? (
+                      <View style={styles.myBotBusyCard}>
+                        <ActivityIndicator color="rgba(191,219,254,0.95)" />
+                        <Text style={styles.myBotBusyText}>{tr("正在提取待办...", "Extracting tasks...")}</Text>
+                      </View>
+                    ) : myBotTaskDrafts.length > 0 ? (
+                      <View style={styles.myBotTaskList}>
+                        {myBotTaskDrafts.map((draft, index) => (
+                          <View key={`${draft.title}-${draft.dueAt || index}`} style={styles.myBotTaskCard}>
+                            <View style={styles.myBotTaskCardBody}>
+                              <Text style={styles.myBotTaskTitle}>{draft.title}</Text>
+                              <Text style={styles.myBotTaskMeta}>
+                                {draft.priority}
+                                {draft.dueAt ? `  ·  ${formatTaskDueAtLabel(draft.dueAt)}` : ""}
+                              </Text>
+                              {draft.reason ? <Text style={styles.myBotTaskReason}>{draft.reason}</Text> : null}
+                            </View>
+                            <Pressable
+                              style={[styles.myBotMiniAction, myBotTaskSaveBusy && styles.myBotMiniActionDisabled]}
+                              onPress={() => void createMyBotTasks([draft])}
+                              disabled={myBotTaskSaveBusy}
+                            >
+                              <Text style={styles.myBotMiniActionText}>{tr("添加", "Add")}</Text>
+                            </Pressable>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={styles.myBotEmptyState}>
+                        <Text style={styles.myBotEmptyText}>
+                          {tr(
+                            "还没有提取待办。点下方按钮，让 MyBot 先整理一版。",
+                            "No tasks extracted yet. Let MyBot draft them first."
+                          )}
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                ) : null}
+                {myBotMode === "reminders" ? (
+                  <>
+                    <View style={styles.myBotSection}>
+                      <Text style={styles.myBotLabel}>{tr("提醒概览", "Reminder overview")}</Text>
+                      <Text style={styles.myBotHintText}>
+                        {tr(
+                          "只要任务带截止时间，系统就会按本机通知提醒你。这里展示当前群关联的待办状态。",
+                          "Once a task has a due time, your device reminders will follow it automatically. This panel shows the reminder status for the current group."
+                        )}
+                      </Text>
+                    </View>
+                    {myBotReminderBuckets.overdue.length === 0 &&
+                    myBotReminderBuckets.upcoming.length === 0 &&
+                    myBotReminderBuckets.unscheduled.length === 0 ? (
+                      <View style={styles.myBotEmptyState}>
+                        <Text style={styles.myBotEmptyText}>
+                          {tr("当前群还没有待提醒事项。你可以先去提取待办。", "There are no reminder items in this group yet. Start by extracting tasks.")}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={styles.myBotReminderList}>
+                        {myBotReminderBuckets.overdue.length > 0 ? (
+                          <View style={styles.myBotReminderSection}>
+                            <Text style={styles.myBotReminderSectionTitle}>{tr("已逾期", "Overdue")}</Text>
+                            {myBotReminderBuckets.overdue.map((task, index) => (
+                              <View key={`${task.id || task.title}-overdue-${index}`} style={styles.myBotReminderCard}>
+                                <Text style={styles.myBotTaskTitle}>{task.title}</Text>
+                                <Text style={styles.myBotTaskMeta}>{formatTaskDueAtLabel(task.dueAt)}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                        {myBotReminderBuckets.upcoming.length > 0 ? (
+                          <View style={styles.myBotReminderSection}>
+                            <Text style={styles.myBotReminderSectionTitle}>{tr("即将到期", "Upcoming")}</Text>
+                            {myBotReminderBuckets.upcoming.map((task, index) => (
+                              <View key={`${task.id || task.title}-upcoming-${index}`} style={styles.myBotReminderCard}>
+                                <Text style={styles.myBotTaskTitle}>{task.title}</Text>
+                                <Text style={styles.myBotTaskMeta}>{formatTaskDueAtLabel(task.dueAt)}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                        {myBotReminderBuckets.unscheduled.length > 0 ? (
+                          <View style={styles.myBotReminderSection}>
+                            <Text style={styles.myBotReminderSectionTitle}>{tr("未设置提醒时间", "No due time yet")}</Text>
+                            {myBotReminderBuckets.unscheduled.map((task, index) => (
+                              <View key={`${task.id || task.title}-unscheduled-${index}`} style={styles.myBotReminderCard}>
+                                <Text style={styles.myBotTaskTitle}>{task.title}</Text>
+                                <Text style={styles.myBotTaskMeta}>{tr("还没有截止时间", "No due time yet")}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                    )}
+                  </>
+                ) : null}
                 <View style={styles.myBotActions}>
                   <Pressable
                     style={styles.myBotSecondaryAction}
-                    onPress={() => setMyBotPanel(false)}
+                    onPress={closeMyBotPanel}
                   >
                     <Text style={styles.myBotSecondaryActionText}>{tr("关闭", "Close")}</Text>
                   </Pressable>
-                  <Pressable
-                    style={[
-                      styles.myBotPrimaryAction,
-                      (myBotBusy || !myBotQuestion.trim()) && styles.myBotPrimaryActionDisabled,
-                    ]}
-                    onPress={() => void runGroupMyBot()}
-                    disabled={myBotBusy || !myBotQuestion.trim()}
-                  >
-                    <Text style={styles.myBotPrimaryActionText}>
-                      {myBotBusy ? tr("思考中...", "Thinking...") : tr("询问", "Ask")}
-                    </Text>
-                  </Pressable>
+                  {myBotMode === "advice" ? (
+                    <Pressable
+                      style={[
+                        styles.myBotPrimaryAction,
+                        (myBotBusy || !myBotQuestion.trim()) && styles.myBotPrimaryActionDisabled,
+                      ]}
+                      onPress={() => void runGroupMyBot()}
+                      disabled={myBotBusy || !myBotQuestion.trim()}
+                    >
+                      <Text style={styles.myBotPrimaryActionText}>
+                        {myBotBusy ? tr("思考中...", "Thinking...") : tr("询问", "Ask")}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {myBotMode === "tasks" ? (
+                    <Pressable
+                      style={[
+                        styles.myBotPrimaryAction,
+                        (myBotTaskBusy || myBotTaskSaveBusy) && styles.myBotPrimaryActionDisabled,
+                      ]}
+                      onPress={() =>
+                        myBotTaskDrafts.length > 0 ? void createMyBotTasks(myBotTaskDrafts) : void extractMyBotTasks()
+                      }
+                      disabled={myBotTaskBusy || myBotTaskSaveBusy}
+                    >
+                      <Text style={styles.myBotPrimaryActionText}>
+                        {myBotTaskBusy
+                          ? tr("提取中...", "Extracting...")
+                          : myBotTaskDrafts.length > 0
+                            ? tr("全部添加", "Add all")
+                            : tr("提取待办", "Extract tasks")}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {myBotMode === "reminders" ? (
+                    <Pressable style={styles.myBotPrimaryAction} onPress={openThreadTasks}>
+                      <Text style={styles.myBotPrimaryActionText}>{tr("打开任务", "Open tasks")}</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               </View>
+              </ScrollView>
+            </Pressable>
+            </KeyboardAvoidingView>
+          </Pressable>
+        </Modal>
+
+        <Modal visible={Boolean(imageViewerState)} transparent animationType="fade" onRequestClose={closeImageViewer}>
+          <Pressable style={styles.imageViewerOverlay} onPress={closeImageViewer}>
+            <Pressable style={styles.imageViewerCard} onPress={() => null}>
+              <View style={styles.imageViewerHeader}>
+                <Text style={styles.imageViewerTitle} numberOfLines={1}>
+                  {imageViewerState?.label || tr("图片预览", "Image preview")}
+                </Text>
+                <Pressable style={styles.closeTiny} onPress={closeImageViewer}>
+                  <Ionicons name="close" size={16} color="rgba(226,232,240,0.85)" />
+                </Pressable>
+              </View>
+              {imageViewerState?.uri ? (
+                <Image source={{ uri: imageViewerState.uri }} style={styles.imageViewerImage} resizeMode="contain" />
+              ) : null}
             </Pressable>
           </Pressable>
         </Modal>
@@ -4966,6 +5346,11 @@ const styles = StyleSheet.create({
   imageWrap: {
     gap: 6,
   },
+  imagePreviewButton: {
+    alignSelf: "flex-start",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
   mediaUploadBadge: {
     alignSelf: "flex-start",
     flexDirection: "row",
@@ -4994,6 +5379,43 @@ const styles = StyleSheet.create({
     width: 200,
     height: 130,
     borderRadius: 12,
+  },
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(2,6,23,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+  },
+  imageViewerCard: {
+    width: "100%",
+    maxWidth: 960,
+    maxHeight: "88%",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.2)",
+    backgroundColor: "rgba(4,8,20,0.96)",
+    padding: 14,
+    gap: 12,
+  },
+  imageViewerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  imageViewerTitle: {
+    flex: 1,
+    color: "#f8fafc",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  imageViewerImage: {
+    width: "100%",
+    height: 520,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.03)",
   },
   imageLabel: {
     color: "rgba(148,163,184,0.9)",
@@ -5665,12 +6087,50 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 14 },
   },
+  myBotAvoid: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  myBotBodyScroll: {
+    flexGrow: 0,
+  },
+  myBotBodyContent: {
+    paddingBottom: 4,
+  },
   myBotDecorLayer: {
     ...StyleSheet.absoluteFillObject,
   },
   myBotContent: {
     gap: 14,
     zIndex: 1,
+  },
+  myBotModeRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  myBotModeChip: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.16)",
+    backgroundColor: "rgba(8,15,32,0.52)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  myBotModeChipActive: {
+    borderColor: "rgba(147,197,253,0.34)",
+    backgroundColor: "rgba(30,64,175,0.28)",
+  },
+  myBotModeChipText: {
+    color: "rgba(191,219,254,0.86)",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  myBotModeChipTextActive: {
+    color: "#eff6ff",
   },
   myBotOrb: {
     position: "absolute",
@@ -5766,6 +6226,22 @@ const styles = StyleSheet.create({
   myBotSection: {
     gap: 8,
   },
+  myBotPromptRow: {
+    gap: 8,
+  },
+  myBotPromptChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(125,211,252,0.22)",
+    backgroundColor: "rgba(8,15,32,0.6)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  myBotPromptChipText: {
+    color: "rgba(219,234,254,0.96)",
+    fontSize: 12,
+    fontWeight: "800",
+  },
   myBotAnswerHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -5792,6 +6268,12 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlignVertical: "top",
   },
+  myBotHintText: {
+    color: "rgba(191,219,254,0.84)",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
   myBotPrivateHint: {
     color: "rgba(148,163,184,0.9)",
     fontSize: 11,
@@ -5816,6 +6298,97 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     fontWeight: "700",
+  },
+  myBotBusyCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(147,197,253,0.18)",
+    backgroundColor: "rgba(8,15,32,0.56)",
+    paddingHorizontal: 14,
+    paddingVertical: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  myBotBusyText: {
+    color: "rgba(226,232,240,0.92)",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  myBotTaskList: {
+    gap: 10,
+  },
+  myBotTaskCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(147,197,253,0.16)",
+    backgroundColor: "rgba(8,15,32,0.62)",
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  myBotTaskCardBody: {
+    flex: 1,
+    gap: 4,
+  },
+  myBotTaskTitle: {
+    color: "#f8fafc",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "900",
+  },
+  myBotTaskMeta: {
+    color: "rgba(147,197,253,0.88)",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  myBotTaskReason: {
+    color: "rgba(191,219,254,0.88)",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  myBotMiniAction: {
+    minWidth: 70,
+    minHeight: 34,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(147,197,253,0.3)",
+    backgroundColor: "rgba(37,99,235,0.82)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  myBotMiniActionDisabled: {
+    backgroundColor: "rgba(51,65,85,0.55)",
+    borderColor: "rgba(148,163,184,0.12)",
+  },
+  myBotMiniActionText: {
+    color: "#eff6ff",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  myBotReminderList: {
+    gap: 12,
+  },
+  myBotReminderSection: {
+    gap: 8,
+  },
+  myBotReminderSectionTitle: {
+    color: "rgba(191,219,254,0.96)",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  myBotReminderCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(8,15,32,0.48)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
   },
   myBotActions: {
     flexDirection: "row",

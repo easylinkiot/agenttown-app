@@ -1979,6 +1979,7 @@ export default function ChatDetailScreen() {
   const [myBotAnswer, setMyBotAnswer] = useState<string | null>(null);
   const [myBotError, setMyBotError] = useState<string | null>(null);
   const [myBotBusy, setMyBotBusy] = useState(false);
+  const [imageViewerState, setImageViewerState] = useState<{ uri: string; label?: string } | null>(null);
 
   const [memberModal, setMemberModal] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
@@ -2700,6 +2701,17 @@ export default function ChatDetailScreen() {
     }
   };
 
+  const openImageViewer = useCallback((uri?: string, label?: string) => {
+    const safeUri = (uri || "").trim();
+    if (!safeUri) return;
+    Keyboard.dismiss();
+    setImageViewerState({ uri: safeUri, label: (label || "").trim() || undefined });
+  }, []);
+
+  const closeImageViewer = useCallback(() => {
+    setImageViewerState(null);
+  }, []);
+
   useEffect(() => {
     if (!chatId) return;
     if (!translationEnabled) return;
@@ -3111,7 +3123,9 @@ export default function ChatDetailScreen() {
                     </Text>
                   </View>
                 ) : null}
-                <Image source={{ uri: previewImageUri }} style={styles.imagePreview} />
+                <Pressable onPress={() => openImageViewer(previewImageUri, raw.imageName)} style={styles.imagePreviewButton}>
+                  <Image source={{ uri: previewImageUri }} style={styles.imagePreview} resizeMode="cover" />
+                </Pressable>
                 {raw.imageName ? <Text style={styles.imageLabel}>{raw.imageName}</Text> : null}
               </View>
             ) : null}
@@ -3231,6 +3245,7 @@ export default function ChatDetailScreen() {
       handleMessagePress,
       highlightMessageId,
       openEntityConfig,
+      openImageViewer,
       streamingById,
       threadDisplayLanguage,
       translationEnabled,
@@ -4117,6 +4132,24 @@ export default function ChatDetailScreen() {
           </Pressable>
         </Modal>
 
+        <Modal visible={Boolean(imageViewerState)} transparent animationType="fade" onRequestClose={closeImageViewer}>
+          <Pressable style={styles.imageViewerOverlay} onPress={closeImageViewer}>
+            <Pressable style={styles.imageViewerCard} onPress={() => null}>
+              <View style={styles.imageViewerHeader}>
+                <Text style={styles.imageViewerTitle} numberOfLines={1}>
+                  {imageViewerState?.label || tr("图片预览", "Image preview")}
+                </Text>
+                <Pressable style={styles.closeTiny} onPress={closeImageViewer}>
+                  <Ionicons name="close" size={16} color="rgba(226,232,240,0.85)" />
+                </Pressable>
+              </View>
+              {imageViewerState?.uri ? (
+                <Image source={{ uri: imageViewerState.uri }} style={styles.imageViewerImage} resizeMode="contain" />
+              ) : null}
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <Modal
           visible={memberNameListModal}
           transparent
@@ -4718,6 +4751,11 @@ const styles = StyleSheet.create({
   imageWrap: {
     gap: 6,
   },
+  imagePreviewButton: {
+    alignSelf: "flex-start",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
   mediaUploadBadge: {
     alignSelf: "flex-start",
     flexDirection: "row",
@@ -4746,6 +4784,43 @@ const styles = StyleSheet.create({
     width: 200,
     height: 130,
     borderRadius: 12,
+  },
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(2,6,23,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+  },
+  imageViewerCard: {
+    width: "100%",
+    maxWidth: 960,
+    maxHeight: "88%",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.2)",
+    backgroundColor: "rgba(4,8,20,0.96)",
+    padding: 14,
+    gap: 12,
+  },
+  imageViewerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  imageViewerTitle: {
+    flex: 1,
+    color: "#f8fafc",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  imageViewerImage: {
+    width: "100%",
+    height: 520,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.03)",
   },
   imageLabel: {
     color: "rgba(148,163,184,0.9)",
