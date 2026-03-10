@@ -1077,8 +1077,8 @@ export default function HomeScreen() {
               </View>
               <Text style={styles.friendHelpText}>
                 {tr(
-                  "系统相机扫码打开 Team Chat 后，也会自动识别好友二维码。",
-                  "If the system camera opens Team Chat after scanning, the friend QR will be recognized automatically."
+                  "系统相机扫码打开 UsChat 后，也会自动识别好友二维码。",
+                  "If the system camera opens UsChat after scanning, the friend QR will be recognized automatically."
                 )}
               </Text>
 

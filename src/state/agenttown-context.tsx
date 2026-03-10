@@ -322,7 +322,7 @@ const defaultBotConfig: BotConfig = {
   name: "MyBot",
   avatar: DEFAULT_MYBOT_AVATAR,
   systemInstruction:
-    "You are a helpful and friendly digital assistant living in Team Chat.",
+    "You are a helpful and friendly digital assistant living in UsChat.",
   documents: [],
   installedSkillIds: ["skill_task_decomposer", "skill_code_assistant"],
   knowledgeKeywords: ["startup", "product", "execution"],
@@ -1372,7 +1372,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             })
           );
           const thread = chatThreadsRef.current.find((item) => item.id === threadId);
-          void notifyMentionReceived(thread?.name || "Team Chat", thread?.message || "", language);
+          void notifyMentionReceived(thread?.name || "UsChat", thread?.message || "", language);
           break;
         }
         case "task.created":

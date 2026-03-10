@@ -640,8 +640,8 @@ export default function SignInScreen() {
                   <Text style={authStyles.title}>{tr("欢迎回来", "Welcome back")}</Text>
                   <Text style={authStyles.subtitle}>
                     {tr(
-                      "延续你的 Team Chat 会话、好友关系和跨端同步。",
-                      "Resume your Team Chat sessions, contacts, and cross-platform sync."
+                      "延续你的 UsChat 会话、好友关系和跨端同步。",
+                      "Resume your UsChat sessions, contacts, and cross-platform sync."
                     )}
                   </Text>
                 </View>

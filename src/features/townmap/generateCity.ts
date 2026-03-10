@@ -198,7 +198,7 @@ export function generateCity() {
         name: `${name} Bot`,
         role,
         avatar: `https://api.dicebear.com/7.x/avataaars/png?seed=${name}&backgroundColor=c0aede`,
-        greeting: `Welcome to Team Chat! I'm ${name}, a ${role}. How can I help?`,
+        greeting: `Welcome to UsChat! I'm ${name}, a ${role}. How can I help?`,
         skills: role,
       },
     });

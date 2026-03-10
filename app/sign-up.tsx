@@ -104,7 +104,7 @@ export default function SignUpScreen() {
                   <Ionicons name="person-add" size={22} color={AUTH_COLORS.primary} />
                 </View>
                 <View style={authStyles.heroCopy}>
-                  <Text style={authStyles.title}>{tr("加入 Team Chat", "Join Team Chat")}</Text>
+                  <Text style={authStyles.title}>{tr("加入 UsChat", "Join UsChat")}</Text>
                   <Text style={authStyles.subtitle}>
                     {tr(
                       "用一个正式账号保存你的好友、NPC、群聊和跨端记录。",

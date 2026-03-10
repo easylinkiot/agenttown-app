@@ -55,7 +55,7 @@ function shouldSchedule(task: TaskItem) {
 }
 
 function reminderTitle(language: AppLanguage) {
-  return language === "zh" ? "Team Chat 提醒" : "Team Chat Reminder";
+  return language === "zh" ? "UsChat 提醒" : "UsChat Reminder";
 }
 
 function reminderBody(task: TaskItem, language: AppLanguage) {

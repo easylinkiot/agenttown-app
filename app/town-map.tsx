@@ -663,7 +663,7 @@ export default function TownMapScreen() {
       const members = groupMemberNames.length > 0 ? groupMemberNames : [selectedLot.npc.name];
       const reply = await generateGeminiText({
         prompt: `User says: ${text}\nReply in one line as one group member. Format must be "Name: message".`,
-        systemInstruction: `You are one member inside a Team Chat group chat. Members: ${members.join(", ")}. Keep replies short, practical and natural.`,
+        systemInstruction: `You are one member inside a UsChat group chat. Members: ${members.join(", ")}. Keep replies short, practical and natural.`,
         history: nextHistory
           .filter((msg) => msg.role !== "system")
           .slice(-10)
@@ -685,7 +685,7 @@ export default function TownMapScreen() {
     } else {
       const reply = await generateGeminiText({
         prompt: text,
-        systemInstruction: `You are ${selectedLot.npc.name}, a ${selectedLot.npc.role} in Team Chat. Keep replies short and practical.`,
+        systemInstruction: `You are ${selectedLot.npc.name}, a ${selectedLot.npc.role} in UsChat. Keep replies short and practical.`,
         history: nextHistory
           .filter((msg) => msg.role !== "system")
           .slice(-10)

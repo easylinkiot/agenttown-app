@@ -1,4 +1,4 @@
-AgentTown is a chat-driven workspace for AI-native teams.
+UsChat is a chat-driven workspace for AI-native teams.
 
 Turn plain chat messages into runnable mini apps, then execute and write back summaries to keep everyone aligned.
 
@@ -10,4 +10,4 @@ Core capabilities:
 - World-map style interface for navigating team contexts.
 - Bilingual UI: English and Chinese.
 
-Use AgentTown to move from discussion to execution faster.
+Use UsChat to move from discussion to execution faster.

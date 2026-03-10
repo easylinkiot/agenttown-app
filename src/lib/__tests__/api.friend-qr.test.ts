@@ -16,7 +16,7 @@ describe("friend qr helpers", () => {
   });
 
   it("extracts a token from shared text", () => {
-    const shared = `Team Chat Friend QR\nagenttown://friend-qr?token=${encodeURIComponent(token)}\nFallback token: ${token}`;
+    const shared = `UsChat Friend QR\nagenttown://friend-qr?token=${encodeURIComponent(token)}\nFallback token: ${token}`;
     expect(extractFriendQrToken(shared)).toBe(token);
   });
 });
