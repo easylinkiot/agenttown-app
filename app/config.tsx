@@ -1,8 +1,9 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import * as QRCode from "qrcode";
 import {
   ActivityIndicator,
@@ -33,7 +34,7 @@ import {
   createFriendQR,
   createKnowledgeDataset,
   deleteKnowledgeDataset,
-  listInstalledSkillsV2,
+  listCustomSkills,
   listKnowledgeDatasets,
   listSkillCatalog,
   patchCustomSkill,
@@ -73,18 +74,33 @@ async function buildFriendQrSvg(shareLink: string) {
 }
 
 function mergeSettingsSkills(systemSkills: SettingsSkillItem[], installedSkills: SettingsSkillItem[]): SettingsSkillItem[] {
-  const installedById = new Map(installedSkills.map((item) => [item.id, item] as const));
-  const mergedSystem = systemSkills.map((skill) => ({
-    ...skill,
-    installed: installedById.has(skill.id),
-  }));
   const userSkills = installedSkills.filter((skill) => skill.source === "user");
-  return [...mergedSystem, ...userSkills].sort((left, right) => {
+  return [...systemSkills, ...userSkills].sort((left, right) => {
     if (left.source !== right.source) {
       return left.source === "system" ? -1 : 1;
     }
     return left.name.localeCompare(right.name);
   });
+}
+
+function customSkillToSettingsSkill(skill: CustomSkill): SettingsSkillItem {
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    version: skill.version,
+    source: "user",
+    installed: true,
+    editable: true,
+    removable: false,
+    permissionScope: skill.permissionScope,
+    markdown: skill.markdown,
+  };
+}
+
+function systemSkillInstallCacheKey(userId?: string) {
+  const safeUserId = (userId || "").trim();
+  return `agenttown.settings.system-skill-install:${safeUserId || "anonymous"}`;
 }
 
 export default function ConfigScreen() {
@@ -105,7 +121,7 @@ export default function ConfigScreen() {
   const [uploadingProfileAvatar, setUploadingProfileAvatar] = useState(false);
 
   const [systemSkills, setSystemSkills] = useState<SettingsSkillItem[]>([]);
-  const [installedSkills, setInstalledSkills] = useState<SettingsSkillItem[]>([]);
+  const [userSkills, setUserSkills] = useState<SettingsSkillItem[]>([]);
   const [knowledgeDatasets, setKnowledgeDatasets] = useState<KnowledgeDataset[]>([]);
   const [loadingResources, setLoadingResources] = useState(true);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
@@ -127,8 +143,20 @@ export default function ConfigScreen() {
   const profileProvider = user?.provider || "unknown";
   const profilePhone = user?.phone || tr("未绑定手机号", "No phone linked");
   const mergedSkills = useMemo(
-    () => mergeSettingsSkills(systemSkills, installedSkills),
-    [systemSkills, installedSkills]
+    () => mergeSettingsSkills(systemSkills, userSkills),
+    [systemSkills, userSkills]
+  );
+
+  const persistSystemSkillInstallCache = useCallback(
+    async (skills: SettingsSkillItem[]) => {
+      const payload = Object.fromEntries(
+        skills
+          .filter((skill) => skill.source === "system")
+          .map((skill) => [skill.id, Boolean(skill.installed)])
+      );
+      await AsyncStorage.setItem(systemSkillInstallCacheKey(user?.id), JSON.stringify(payload));
+    },
+    [user?.id]
   );
 
   useEffect(() => {
@@ -149,14 +177,15 @@ export default function ConfigScreen() {
     setResourcesError(null);
     void Promise.all([
       listSkillCatalog(),
-      listInstalledSkillsV2(),
+      listCustomSkills(),
       listKnowledgeDatasets(),
     ])
-      .then(([nextSystemSkills, nextInstalledSkills, nextKnowledge]) => {
+      .then(([nextSystemSkills, nextUserSkills, nextKnowledge]) => {
         if (!alive) return;
         setSystemSkills(nextSystemSkills);
-        setInstalledSkills(nextInstalledSkills);
+        setUserSkills(nextUserSkills.map(customSkillToSettingsSkill));
         setKnowledgeDatasets(nextKnowledge);
+        void persistSystemSkillInstallCache(nextSystemSkills);
       })
       .catch((error: unknown) => {
         if (!alive) return;
@@ -172,7 +201,7 @@ export default function ConfigScreen() {
     return () => {
       alive = false;
     };
-  }, [language]);
+  }, [language, persistSystemSkillInstallCache, user?.id]);
 
   const friendQrDeepLink = useMemo(() => buildFriendQrDeepLink(myQrToken), [myQrToken]);
 
@@ -331,18 +360,15 @@ export default function ConfigScreen() {
     if (skill.source !== "system" || skillBusyId) return;
     const nextInstalled = !skill.installed;
     setSkillBusyId(skill.id);
-    setInstalledSkills((previous) => {
-      if (nextInstalled) {
-        const exists = previous.some((item) => item.id === skill.id);
-        if (exists) return previous;
-        return [...previous, { ...skill, installed: true }];
-      }
-      return previous.filter((item) => item.id !== skill.id);
-    });
+    setSystemSkills((previous) =>
+      previous.map((item) => (item.id === skill.id ? { ...item, installed: nextInstalled } : item))
+    );
     try {
       await setV2SkillInstalled(skill.id, nextInstalled);
-      const refreshed = await listInstalledSkillsV2();
-      setInstalledSkills(refreshed);
+      const nextSystemSkills = systemSkills.map((item) =>
+        item.id === skill.id ? { ...item, installed: nextInstalled } : item
+      );
+      await persistSystemSkillInstallCache(nextSystemSkills);
     } catch (error) {
       const apiErrorCode = error instanceof ApiError ? (error.code || "").toLowerCase() : "";
       const apiErrorMessage = error instanceof Error ? error.message.toLowerCase() : "";
@@ -359,22 +385,22 @@ export default function ConfigScreen() {
           apiErrorMessage.includes("not found"));
 
       if (indicatesAlreadyInstalled || indicatesAlreadyRemoved) {
-        const refreshed = await listInstalledSkillsV2();
-        setInstalledSkills(refreshed);
+        const resolvedInstalled = indicatesAlreadyInstalled;
+        setSystemSkills((previous) => {
+          const next = previous.map((item) =>
+            item.id === skill.id ? { ...item, installed: resolvedInstalled } : item
+          );
+          void persistSystemSkillInstallCache(next);
+          return next;
+        });
       } else {
-        const refreshed = await listInstalledSkillsV2().catch(() => null);
-        if (refreshed) {
-          setInstalledSkills(refreshed);
-        } else {
-          setInstalledSkills((previous) => {
-            if (skill.installed) {
-              const exists = previous.some((item) => item.id === skill.id);
-              if (exists) return previous;
-              return [...previous, { ...skill, installed: true }];
-            }
-            return previous.filter((item) => item.id !== skill.id);
-          });
-        }
+        setSystemSkills((previous) => {
+          const next = previous.map((item) =>
+            item.id === skill.id ? { ...item, installed: skill.installed } : item
+          );
+          void persistSystemSkillInstallCache(next);
+          return next;
+        });
         Alert.alert(
           tr("技能更新失败", "Skill update failed"),
           error instanceof Error ? error.message : tr("请稍后重试", "Please try again later.")
@@ -419,21 +445,21 @@ export default function ConfigScreen() {
     setSavingSkill(true);
     try {
       if (skillEditor.id) {
-        const updated = await patchCustomSkill(skillEditor.id, {
+        await patchCustomSkill(skillEditor.id, {
           name: safeName,
           description: skillEditor.description.trim(),
           markdown: safeMarkdown,
         });
-        const refreshed = await listInstalledSkillsV2();
-        setInstalledSkills(refreshed);
+        const refreshed = await listCustomSkills();
+        setUserSkills(refreshed.map(customSkillToSettingsSkill));
       } else {
         await createCustomSkill({
           name: safeName,
           description: skillEditor.description.trim(),
           markdown: safeMarkdown,
         });
-        const refreshed = await listInstalledSkillsV2();
-        setInstalledSkills(refreshed);
+        const refreshed = await listCustomSkills();
+        setUserSkills(refreshed.map(customSkillToSettingsSkill));
       }
       setSkillModalVisible(false);
       setSkillEditor(emptySkillEditor);
