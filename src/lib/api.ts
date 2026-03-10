@@ -358,21 +358,24 @@ export interface CreateKnowledgeDatasetInput {
   entries?: Array<{
     type?: string;
     name: string;
+    text?: string;
     fileUrl?: string;
-    url?: string;
-    content?: string;
+    contentType?: string;
+    size?: number;
   }>;
 }
 
 export interface UpdateKnowledgeDatasetInput {
   name?: string;
-  entries?: Array<{
+  addEntries?: Array<{
     type?: string;
     name: string;
+    text?: string;
     fileUrl?: string;
-    url?: string;
-    content?: string;
+    contentType?: string;
+    size?: number;
   }>;
+  removeEntryIds?: string[];
 }
 
 export interface ExecuteCustomSkillInput {
@@ -1650,9 +1653,10 @@ export async function createKnowledgeDataset(
       entries: (payload.entries || []).map((entry) => ({
         type: entry.type || "file",
         name: entry.name,
-        file_url: entry.fileUrl,
-        url: entry.url,
-        content: entry.content,
+        text: entry.text,
+        s3_url: entry.fileUrl,
+        content_type: entry.contentType,
+        size: entry.size,
       })),
     }),
   });
@@ -1671,15 +1675,17 @@ export async function updateKnowledgeDataset(
     method: "PATCH",
     body: JSON.stringify({
       name: payload.name,
-      entries: payload.entries
-        ? payload.entries.map((entry) => ({
+      add_entries: payload.addEntries
+        ? payload.addEntries.map((entry) => ({
             type: entry.type || "file",
             name: entry.name,
-            file_url: entry.fileUrl,
-            url: entry.url,
-            content: entry.content,
+            text: entry.text,
+            s3_url: entry.fileUrl,
+            content_type: entry.contentType,
+            size: entry.size,
           }))
         : undefined,
+      remove_entry_ids: payload.removeEntryIds,
     }),
   });
   const normalized = normalizeKnowledgeDataset(updated, 0);

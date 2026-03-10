@@ -277,11 +277,28 @@ describe("npc api v2 mapping", () => {
 
     const created = await createKnowledgeDataset({
       name: "Release Notes",
-      entries: [{ name: "release-notes.md", type: "file", fileUrl: "https://cdn.example.com/release-notes.md" }],
+      entries: [
+        {
+          name: "release-notes.md",
+          type: "file",
+          fileUrl: "https://cdn.example.com/release-notes.md",
+          contentType: "text/markdown",
+          size: 128,
+        },
+      ],
     });
     const updated = await updateKnowledgeDataset("ds_1", {
       name: "Release Notes Updated",
-      entries: [{ name: "release-notes.md", type: "file", fileUrl: "https://cdn.example.com/release-notes.md" }],
+      addEntries: [
+        {
+          name: "release-notes.md",
+          type: "file",
+          fileUrl: "https://cdn.example.com/release-notes.md",
+          contentType: "text/markdown",
+          size: 128,
+        },
+      ],
+      removeEntryIds: ["entry_old"],
     });
     const deleted = await deleteKnowledgeDataset("ds_1");
 
@@ -292,10 +309,39 @@ describe("npc api v2 mapping", () => {
     const [createUrl, createInit] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(createUrl).toBe("https://api.example.com/v2/knowledge");
     expect(createInit.method).toBe("POST");
+    expect(JSON.parse(String(createInit.body))).toEqual(
+      {
+        name: "Release Notes",
+        entries: [
+          {
+            name: "release-notes.md",
+            type: "file",
+            s3_url: "https://cdn.example.com/release-notes.md",
+            content_type: "text/markdown",
+            size: 128,
+          },
+        ],
+      }
+    );
 
     const [updateUrl, updateInit] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(updateUrl).toBe("https://api.example.com/v2/knowledge/ds_1");
     expect(updateInit.method).toBe("PATCH");
+    expect(JSON.parse(String(updateInit.body))).toEqual(
+      {
+        name: "Release Notes Updated",
+        add_entries: [
+          {
+            name: "release-notes.md",
+            type: "file",
+            s3_url: "https://cdn.example.com/release-notes.md",
+            content_type: "text/markdown",
+            size: 128,
+          },
+        ],
+        remove_entry_ids: ["entry_old"],
+      }
+    );
 
     const [deleteUrl, deleteInit] = fetchMock.mock.calls[2] as [string, RequestInit];
     expect(deleteUrl).toBe("https://api.example.com/v2/knowledge/ds_1");

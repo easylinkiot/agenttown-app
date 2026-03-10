@@ -501,8 +501,9 @@ export default function ConfigScreen() {
           {
             name: asset.name || "document",
             type: "file",
+            contentType: asset.mimeType || "application/octet-stream",
             fileUrl,
-            url: fileUrl,
+            size: typeof asset.size === "number" ? asset.size : undefined,
           },
         ],
       });
