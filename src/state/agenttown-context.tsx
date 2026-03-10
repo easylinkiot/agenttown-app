@@ -5,6 +5,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Platform } from "react-native";
 
 import { DEFAULT_MYBOT_AVATAR } from "@/src/constants/chat";
+import { sortConversationMessagesChronologically } from "@/src/features/chat/chat-helpers";
 import {
   friendAliasKeys,
   friendAliasStorageKey,
@@ -539,18 +540,6 @@ function pickGroupOwnerId(thread?: ChatThread) {
   return "";
 }
 
-function sortMessagesBySeqOrTime(messages: ConversationMessage[]): ConversationMessage[] {
-  return [...messages].sort((a, b) => {
-    if (typeof a.seqNo === "number" && typeof b.seqNo === "number") {
-      return a.seqNo - b.seqNo;
-    }
-    const at = Date.parse(a.time || "");
-    const bt = Date.parse(b.time || "");
-    if (Number.isFinite(at) && Number.isFinite(bt)) return at - bt;
-    return 0;
-  });
-}
-
 function normalizeLooseDateTime(value: unknown) {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -1032,7 +1021,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       }
     }
     if (loadedViaV2SessionApi) {
-      latest = sortMessagesBySeqOrTime(latest);
+      latest = sortConversationMessagesChronologically(latest);
       const merged = cached && cached.length > 0 ? mergeAppendUnique(cached, latest) : latest;
       const safeMerged = Array.isArray(merged) ? merged : [];
       if (useThreadCache) {
@@ -1063,7 +1052,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
         latest = response.map((row) => mapATMessageToConversation(row, userID, threadId));
       }
     }
-    latest = sortMessagesBySeqOrTime(latest);
+    latest = sortConversationMessagesChronologically(latest);
     const merged = cached && cached.length > 0 ? mergeAppendUnique(cached, latest) : latest;
     const safeMerged = Array.isArray(merged) ? merged : [];
     if (useThreadCache) {
@@ -1130,7 +1119,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
         }
       }
     }
-    older = sortMessagesBySeqOrTime(older);
+    older = sortConversationMessagesChronologically(older);
     if (!Array.isArray(older) || older.length === 0) return 0;
 
     setMessagesByThread((prev) => {
@@ -1315,9 +1304,10 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             if (history.some((item) => item.id === normalizedPayload.id)) {
               return prev;
             }
+            const nextHistory = sortConversationMessagesChronologically([...history, normalizedPayload]);
             return {
               ...prev,
-              [threadId]: [...history, normalizedPayload],
+              [threadId]: nextHistory,
             };
           });
 
@@ -1683,7 +1673,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             time: "Now",
           };
           const base = messagesByThreadRef.current[threadId] || [];
-          const nextMessages = [...base, userMessage];
+          const nextMessages = sortConversationMessagesChronologically([...base, userMessage]);
           setMessagesByThread((prev) => ({
             ...prev,
             [threadId]: nextMessages,
@@ -1700,12 +1690,13 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
         try {
           const result = await sendThreadMessageApi(threadId, payload);
           if (Array.isArray(result.messages)) {
+            const nextMessages = sortConversationMessagesChronologically(result.messages);
             setMessagesByThread((prev) => ({
               ...prev,
-              [threadId]: result.messages,
+              [threadId]: nextMessages,
             }));
             if (useThreadCache) {
-              void upsertThreadCache(userID, threadId, result.messages);
+              void upsertThreadCache(userID, threadId, nextMessages);
             }
           }
           const preview = result.aiMessage
@@ -2129,7 +2120,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             }
             return {
               ...prev,
-              [threadId]: next,
+              [threadId]: sortConversationMessagesChronologically(next),
             };
           });
 

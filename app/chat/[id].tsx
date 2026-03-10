@@ -48,6 +48,10 @@ import {
   buildTaskItemFromCandidate,
 } from "@/src/features/chat/ask-ai-helpers";
 import {
+  parseConversationTimestamp,
+  sortConversationMessagesChronologically,
+} from "@/src/features/chat/chat-helpers";
+import {
   inferUploadFilename,
   normalizeMediaAssetForUpload,
 } from "@/src/features/chat/media-upload";
@@ -277,8 +281,8 @@ function toGiftedMessage(
 ): GiftedMessage {
   const senderID = (message.senderId || "").trim();
   const isMe = senderID !== "" && currentUserId ? senderID === currentUserId : Boolean(message.isMe);
-  const parsedTime = message.time ? Date.parse(message.time) : Number.NaN;
-  const createdAt = Number.isFinite(parsedTime) ? new Date(parsedTime) : new Date(fallbackTime);
+  const parsedTime = parseConversationTimestamp(message.time || "");
+  const createdAt = typeof parsedTime === "number" ? new Date(parsedTime) : new Date(fallbackTime);
 
   return {
     _id: message.id || `${fallbackTime}`,
@@ -309,6 +313,22 @@ function isLikelySameMessage(a: GiftedMessage, b: GiftedMessage) {
   if (aSender && bSender && aSender !== bSender) return false;
   const diff = Math.abs(new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   return diff < 120000;
+}
+
+function compareGiftedMessagesDesc(a: GiftedMessage, b: GiftedMessage) {
+  const aSeq = typeof a.raw?.seqNo === "number" ? a.raw.seqNo : null;
+  const bSeq = typeof b.raw?.seqNo === "number" ? b.raw.seqNo : null;
+  if (aSeq !== null && bSeq !== null && aSeq !== bSeq) {
+    return bSeq - aSeq;
+  }
+
+  const at = new Date(a.createdAt).getTime();
+  const bt = new Date(b.createdAt).getTime();
+  if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) {
+    return bt - at;
+  }
+
+  return String(b._id).localeCompare(String(a._id));
 }
 
 function normalizeDisplayedContent(content: string, senderName?: string) {
@@ -573,7 +593,10 @@ export default function ChatDetailScreen() {
   }, [botConfig.avatar, chatId, chatThreads, params.avatar, params.isGroup, params.name, tr]);
 
   const members = threadMembers[chatId] || [];
-  const messages = useMemo(() => messagesByThread[chatId] || EMPTY_MESSAGES, [messagesByThread, chatId]);
+  const messages = useMemo(
+    () => sortConversationMessagesChronologically(messagesByThread[chatId] || EMPTY_MESSAGES),
+    [messagesByThread, chatId]
+  );
   const linkedFriend = useMemo(() => friends.find((item) => item.threadId === chatId), [chatId, friends]);
   const currentUserId = (user?.id || "").trim();
   const getMemberDisplayName = useCallback(
@@ -1632,9 +1655,12 @@ export default function ChatDetailScreen() {
 
   const baseGiftedMessages = useMemo(() => {
     const baseTime = Date.now();
-    const reversed = [...messages].reverse();
-    return reversed.map((message, index) =>
-      toGiftedMessage(message, currentUserId, baseTime - index * MESSAGE_FALLBACK_GAP)
+    return messages.map((message, index) =>
+      toGiftedMessage(
+        message,
+        currentUserId,
+        baseTime - Math.max(0, messages.length - 1 - index) * MESSAGE_FALLBACK_GAP
+      )
     );
   }, [currentUserId, messages]);
 
@@ -1647,11 +1673,10 @@ export default function ChatDetailScreen() {
   }, [baseGiftedMessages, pendingMessages.length]);
 
   const giftedMessages = useMemo(() => {
-    if (pendingMessages.length === 0) return baseGiftedMessages;
     const filteredPending = pendingMessages.filter(
       (pending) => !baseGiftedMessages.some((msg) => isLikelySameMessage(pending, msg))
     );
-    return GiftedChat.append(baseGiftedMessages, filteredPending);
+    return [...baseGiftedMessages, ...filteredPending].sort(compareGiftedMessagesDesc);
   }, [baseGiftedMessages, pendingMessages]);
 
   const [loading, setLoading] = useState(() => messages.length === 0);
@@ -2384,6 +2409,7 @@ export default function ChatDetailScreen() {
     setInput("");
 
     let ok = false;
+    let clearLocalPendingOnSuccess = false;
     let botLocalId = "";
     try {
       if (thread.isGroup) {
@@ -2397,6 +2423,7 @@ export default function ChatDetailScreen() {
             setFailedDraft(content);
           } else {
             ok = true;
+            clearLocalPendingOnSuccess = true;
             if (mentionState.mentionedMyBot) {
               setMyBotQuestion(content);
               setMyBotAnswer(null);
@@ -2412,6 +2439,7 @@ export default function ChatDetailScreen() {
             includeMyBot: false,
           });
           ok = true;
+          clearLocalPendingOnSuccess = true;
           if (mentionState.mentionedMyBot) {
             setMyBotQuestion(content);
             setMyBotAnswer(null);
@@ -2535,6 +2563,7 @@ export default function ChatDetailScreen() {
           setFailedDraft(content);
         } else {
           ok = true;
+          clearLocalPendingOnSuccess = true;
         }
       }
     } catch {
@@ -2552,7 +2581,7 @@ export default function ChatDetailScreen() {
       setFailedDraft(content);
     } finally {
       setSubmitting(false);
-      if (!ok) {
+      if (!ok || clearLocalPendingOnSuccess) {
         setPendingMessages((prev) => prev.filter((msg) => msg._id !== localId));
       }
     }

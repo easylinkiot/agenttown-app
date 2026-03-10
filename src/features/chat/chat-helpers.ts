@@ -50,3 +50,43 @@ export function formatNowTime() {
     minute: "2-digit",
   });
 }
+
+export function parseConversationTimestamp(value: string): number | null {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return null;
+
+  const parsed = Date.parse(trimmed);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+
+  const timeOnlyMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(trimmed);
+  if (!timeOnlyMatch) return null;
+
+  const hours = Number(timeOnlyMatch[1]);
+  const minutes = Number(timeOnlyMatch[2]);
+  const seconds = Number(timeOnlyMatch[3] || "0");
+  if (![hours, minutes, seconds].every((part) => Number.isFinite(part))) {
+    return null;
+  }
+
+  const date = new Date();
+  date.setHours(hours, minutes, seconds, 0);
+  return date.getTime();
+}
+
+export function sortConversationMessagesChronologically(messages: ConversationMessage[]): ConversationMessage[] {
+  return [...messages].sort((a, b) => {
+    if (typeof a.seqNo === "number" && typeof b.seqNo === "number" && a.seqNo !== b.seqNo) {
+      return a.seqNo - b.seqNo;
+    }
+
+    const at = parseConversationTimestamp(a.time || "");
+    const bt = parseConversationTimestamp(b.time || "");
+    if (typeof at === "number" && typeof bt === "number" && at !== bt) {
+      return at - bt;
+    }
+
+    return 0;
+  });
+}
