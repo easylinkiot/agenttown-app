@@ -394,6 +394,10 @@ export function isMyBotThreadId(threadId: string): boolean {
   return id === "mybot" || id === "agent_mybot" || id.startsWith("agent_userbot_");
 }
 
+function isLegacySessionThreadId(threadId: string) {
+  return /^sess_/i.test((threadId || "").trim());
+}
+
 export function syncMyBotThreads(threads: ChatThread[], config: BotConfig): ChatThread[] {
   if (!Array.isArray(threads) || threads.length === 0) return threads;
 
@@ -1221,15 +1225,17 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       }
     }
     if (latest.length === 0) {
-      try {
-        const rows = await listChatSessionMessagesApi(threadId, { limit: MESSAGE_PAGE_SIZE });
-        if (Array.isArray(rows) && rows.length > 0) {
-          latest = rows.map((row) => mapATMessageToConversation(row, userID, threadId));
-        } else {
-          const latestRaw = await listThreadMessagesApi(threadId, { limit: MESSAGE_PAGE_SIZE });
-          latest = normalizeMessagesForUser(Array.isArray(latestRaw) ? latestRaw : [], userID);
+      if (isLegacySessionThreadId(threadId)) {
+        try {
+          const rows = await listChatSessionMessagesApi(threadId, { limit: MESSAGE_PAGE_SIZE });
+          if (Array.isArray(rows) && rows.length > 0) {
+            latest = rows.map((row) => mapATMessageToConversation(row, userID, threadId));
+          }
+        } catch {
+          // Fall through to the thread endpoint below.
         }
-      } catch {
+      }
+      if (latest.length === 0) {
         const latestRaw = await listThreadMessagesApi(threadId, { limit: MESSAGE_PAGE_SIZE });
         latest = normalizeMessagesForUser(Array.isArray(latestRaw) ? latestRaw : [], userID);
       }
@@ -1296,7 +1302,11 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     }
     if (older.length === 0) {
       const oldestSeqNo = current[0]?.seqNo;
-      if (typeof oldestSeqNo === "number" && Number.isFinite(oldestSeqNo)) {
+      if (
+        isLegacySessionThreadId(threadId) &&
+        typeof oldestSeqNo === "number" &&
+        Number.isFinite(oldestSeqNo)
+      ) {
         try {
           const response = await listChatSessionMessagesApi(threadId, {
             limit: MESSAGE_PAGE_SIZE,

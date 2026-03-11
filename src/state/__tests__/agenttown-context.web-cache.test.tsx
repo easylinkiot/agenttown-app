@@ -215,6 +215,7 @@ describe("agenttown-context cache safety", () => {
     expect(mockFs.readAsStringAsync).not.toHaveBeenCalled();
     expect(mockFs.makeDirectoryAsync).not.toHaveBeenCalled();
     expect(mockFs.writeAsStringAsync).not.toHaveBeenCalled();
+    expect(mockedListChatSessionMessages).not.toHaveBeenCalled();
   });
 
   it("does not auto-load ai session messages into the primary chat store for sess-prefixed ids", async () => {
