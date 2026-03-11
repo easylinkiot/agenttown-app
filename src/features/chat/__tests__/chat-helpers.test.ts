@@ -87,13 +87,16 @@ describe("chat helpers", () => {
   });
 
   it("formats conversation message time from absolute timestamps instead of display-only time", () => {
+    const sameDay = new Date();
+    sameDay.setHours(18, 32, 10, 123);
+    const iso = sameDay.toISOString();
     const message = createMessage({
       time: "18:32",
-      createdAt: "2026-03-10T18:32:10.123Z",
+      createdAt: iso,
     });
 
     expect(formatConversationMessageDisplayTime(message)).toBe(
-      new Date("2026-03-10T18:32:10.123Z").toLocaleTimeString([], {
+      new Date(iso).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
       })
