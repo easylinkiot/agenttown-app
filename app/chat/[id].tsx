@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Image as ExpoImage } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -58,12 +59,6 @@ import {
   normalizeMediaAssetForUpload,
 } from "@/src/features/chat/media-upload";
 import {
-  bucketMyBotReminderTasks,
-  buildMyBotTaskPayload,
-  parseMyBotTaskDrafts,
-  type MyBotTaskDraft,
-} from "@/src/features/chat/mybot-helpers";
-import {
   collectMentionMatches,
   extractActiveMention,
   replaceActiveMention,
@@ -75,6 +70,12 @@ import {
   shouldOpenMentionPicker,
 } from "@/src/features/chat/mention-picker";
 import { MentionPickerModal } from "@/src/features/chat/MentionPickerModal";
+import {
+  bucketMyBotReminderTasks,
+  buildMyBotTaskPayload,
+  type MyBotTaskDraft,
+  parseMyBotTaskDrafts,
+} from "@/src/features/chat/mybot-helpers";
 import { tx } from "@/src/i18n/translate";
 import {
   agentChat as agentChatApi,
@@ -216,6 +217,42 @@ function askAISkillFallbackLabel(action: AssistSkillAction, tr: (zh: string, en:
     default:
       return action;
   }
+}
+
+type CachedChatImageProps = {
+  uri: string;
+  frameStyle: React.ComponentProps<typeof View>["style"];
+  contentFit: "cover" | "contain";
+  testID?: string;
+};
+
+function CachedChatImage({ uri, frameStyle, contentFit, testID }: CachedChatImageProps) {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    setIsLoading(true);
+  }, [uri]);
+
+  return (
+    <View testID={testID} style={[styles.cachedImageFrame, frameStyle]}>
+      <ExpoImage
+        source={{ uri, cacheKey: uri }}
+        style={[StyleSheet.absoluteFillObject, isLoading && styles.cachedImageAssetHidden]}
+        contentFit={contentFit}
+        cachePolicy="memory-disk"
+        transition={160}
+        onLoadStart={() => setIsLoading(true)}
+        onDisplay={() => setIsLoading(false)}
+        onError={() => setIsLoading(false)}
+      />
+      {isLoading ? (
+        <View pointerEvents="none" style={styles.cachedImageLoadingOverlay}>
+          <ActivityIndicator size="small" color="rgba(248,250,252,0.96)" />
+          <Text style={styles.cachedImageLoadingText}>Loading</Text>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 function TaskNavIcon({ color = "rgba(226,232,240,0.92)", size = 16 }: TaskNavIconProps) {
@@ -1941,7 +1978,27 @@ export default function ChatDetailScreen() {
   const [myBotTaskError, setMyBotTaskError] = useState<string | null>(null);
   const [myBotTaskBusy, setMyBotTaskBusy] = useState(false);
   const [myBotTaskSaveBusy, setMyBotTaskSaveBusy] = useState(false);
-  const [imageViewerState, setImageViewerState] = useState<{ uri: string; label?: string } | null>(null);
+  const [imageViewerState, setImageViewerState] = useState<{ uri: string } | null>(null);
+  const imageViewerFrameStyle = useMemo(
+    () => ({
+      width: Math.max(260, Math.min(windowWidth - 24, 1280)),
+      height: Math.max(280, windowHeight - insets.top - insets.bottom - 88),
+    }),
+    [insets.bottom, insets.top, windowHeight, windowWidth]
+  );
+  const imageViewerTopBarStyle = useMemo(
+    () => ({
+      paddingTop: Math.max(insets.top, Platform.OS === "android" ? 18 : 10),
+    }),
+    [insets.top]
+  );
+  const imageViewerContentStyle = useMemo(
+    () => ({
+      paddingTop: Math.max(insets.top + 72, 96),
+      paddingBottom: Math.max(insets.bottom, 12) + 12,
+    }),
+    [insets.bottom, insets.top]
+  );
   const actionDialogStyle = useMemo(
     () => ({
       width: Math.min(560, Math.max(320, windowWidth - 28)),
@@ -2521,11 +2578,11 @@ export default function ChatDetailScreen() {
     []
   );
 
-  const openImageViewer = useCallback((uri?: string, label?: string) => {
+  const openImageViewer = useCallback((uri?: string) => {
     const safeUri = (uri || "").trim();
     if (!safeUri) return;
     Keyboard.dismiss();
-    setImageViewerState({ uri: safeUri, label: (label || "").trim() || undefined });
+    setImageViewerState({ uri: safeUri });
   }, []);
 
   const closeImageViewer = useCallback(() => {
@@ -3535,10 +3592,9 @@ export default function ChatDetailScreen() {
                     </Text>
                   </View>
                 ) : null}
-                <Pressable onPress={() => openImageViewer(previewImageUri, raw.imageName)} style={styles.imagePreviewButton}>
-                  <Image source={{ uri: previewImageUri }} style={styles.imagePreview} resizeMode="cover" />
+                <Pressable onPress={() => openImageViewer(previewImageUri)} style={styles.imagePreviewButton}>
+                  <CachedChatImage uri={previewImageUri} frameStyle={styles.imagePreview} contentFit="cover" />
                 </Pressable>
-                {raw.imageName ? <Text style={styles.imageLabel}>{raw.imageName}</Text> : null}
               </View>
             ) : null}
             {displayText && !hideImagePlaceholder ? (
@@ -4680,22 +4736,34 @@ export default function ChatDetailScreen() {
           </View>
         </Modal>
 
-        <Modal visible={Boolean(imageViewerState)} transparent animationType="fade" onRequestClose={closeImageViewer}>
-          <Pressable style={styles.imageViewerOverlay} onPress={closeImageViewer}>
-            <Pressable style={styles.imageViewerCard} onPress={() => null}>
-              <View style={styles.imageViewerHeader}>
-                <Text style={styles.imageViewerTitle} numberOfLines={1}>
-                  {imageViewerState?.label || tr("图片预览", "Image preview")}
-                </Text>
-                <Pressable style={styles.closeTiny} onPress={closeImageViewer}>
-                  <Ionicons name="close" size={16} color="rgba(226,232,240,0.85)" />
+        <Modal
+          visible={Boolean(imageViewerState)}
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+          onRequestClose={closeImageViewer}
+        >
+          <View style={styles.imageViewerOverlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeImageViewer} />
+            <View pointerEvents="box-none" style={styles.imageViewerSafeArea}>
+              <View pointerEvents="box-none" style={[styles.imageViewerTopBar, imageViewerTopBarStyle]}>
+                <Pressable
+                  hitSlop={12}
+                  style={styles.imageViewerCloseButton}
+                  onPress={closeImageViewer}
+                >
+                  <Ionicons name="close" size={20} color="#f8fafc" />
                 </Pressable>
               </View>
-              {imageViewerState?.uri ? (
-                <Image source={{ uri: imageViewerState.uri }} style={styles.imageViewerImage} resizeMode="contain" />
-              ) : null}
-            </Pressable>
-          </Pressable>
+              <View pointerEvents="box-none" style={[styles.imageViewerContent, imageViewerContentStyle]}>
+                <Pressable style={[styles.imageViewerFrame, imageViewerFrameStyle]} onPress={() => null}>
+                  {imageViewerState?.uri ? (
+                    <CachedChatImage uri={imageViewerState.uri} frameStyle={styles.imageViewerImage} contentFit="contain" />
+                  ) : null}
+                </Pressable>
+              </View>
+            </View>
+          </View>
         </Modal>
 
         <MentionPickerModal
@@ -5370,47 +5438,77 @@ const styles = StyleSheet.create({
     height: 130,
     borderRadius: 12,
   },
-  imageViewerOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(2,6,23,0.9)",
+  cachedImageFrame: {
+    overflow: "hidden",
+    backgroundColor: "rgba(15,23,42,0.32)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    paddingVertical: 5
+  },
+  cachedImageAssetHidden: {
+    opacity: 0,
+  },
+  cachedImageLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 24,
+    gap: 8,
+    backgroundColor: "rgba(8,15,29,0.58)",
   },
-  imageViewerCard: {
+  cachedImageLoadingText: {
+    color: "rgba(248,250,252,0.96)",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  imageViewerSafeArea: {
+    flex: 1,
     width: "100%",
-    maxWidth: 960,
-    maxHeight: "88%",
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.2)",
-    backgroundColor: "rgba(4,8,20,0.96)",
-    padding: 14,
-    gap: 12,
   },
-  imageViewerHeader: {
+  imageViewerTopBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 3,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
+    justifyContent: "flex-end",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
-  imageViewerTitle: {
+  imageViewerCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#000000",
+    borderWidth: 0,
+    zIndex: 4,
+    elevation: 4,
+  },
+  imageViewerContent: {
     flex: 1,
-    color: "#f8fafc",
-    fontSize: 14,
-    fontWeight: "900",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  imageViewerFrame: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   imageViewerImage: {
     width: "100%",
-    height: 520,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.03)",
-  },
-  imageLabel: {
-    color: "rgba(148,163,184,0.9)",
-    fontSize: 12,
-    fontWeight: "700",
+    height: "100%",
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "#000000",
+    padding: 0,
   },
   msgText: {
     color: "rgba(226,232,240,0.92)",
