@@ -10,6 +10,7 @@ export type ApiEnvironment = keyof typeof API_ENV_BASE_URLS;
 
 export const DEFAULT_API_ENV: ApiEnvironment = "stage";
 const LOCALHOST_PATTERN = /^http:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2)(?=[:/]|$)/i;
+let hasLoggedRuntimeApiEnv = false;
 
 function normalizeApiEnvironment(value: string | undefined | null): ApiEnvironment {
   const normalized = value?.trim().toLowerCase();
@@ -67,8 +68,19 @@ export function resolveApiBaseUrl({
   return normalized;
 }
 
+function logRuntimeApiEnvOnce(env: ApiEnvironment, baseUrl: string, isReleaseBuild: boolean) {
+  if (isReleaseBuild || process.env.NODE_ENV === "test" || hasLoggedRuntimeApiEnv) return;
+  hasLoggedRuntimeApiEnv = true;
+  console.info(`[api-env] 访问环境 ${env} URL=${baseUrl}`);
+}
+
 export function getRuntimeApiBaseUrl() {
-  return resolveApiBaseUrl({
+  const env = getApiEnvironment();
+  const baseUrl = resolveApiBaseUrl({
+    apiEnv: env,
     explicitBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL,
   });
+  const isReleaseBuild = typeof __DEV__ === "undefined" ? true : !__DEV__;
+  logRuntimeApiEnvOnce(env, baseUrl, isReleaseBuild);
+  return baseUrl;
 }
