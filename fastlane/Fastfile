@@ -5,6 +5,16 @@ require "shellwords"
 
 default_platform(:ios)
 
+API_ENV_BASE_URLS = {
+  "stage" => "https://agenttown-api.kittens.cloud",
+  "staging" => "https://agenttown-api.kittens.cloud",
+  "dev" => "https://api.agtown.ai",
+  "development" => "https://api.agtown.ai",
+  "local" => "http://127.0.0.1:8080",
+  "localhost" => "http://127.0.0.1:8080",
+}.freeze
+DEFAULT_API_ENV = "stage".freeze
+
 PROJECT_ROOT = File.expand_path("..", __dir__)
 
 def run_in_project_root(command)
@@ -45,6 +55,21 @@ end
 def parse_groups(value)
   return nil if value.to_s.strip.empty?
   value.split(",").map(&:strip).reject(&:empty?)
+end
+
+def resolve_api_base_url(options)
+  explicit_base_url =
+    options[:api_base_url] ||
+    ENV["EXPO_PUBLIC_API_BASE_URL"] ||
+    ENV["AGENTTOWN_API_BASE_URL"]
+  return explicit_base_url unless explicit_base_url.to_s.strip.empty?
+
+  api_env =
+    options[:api_env] ||
+    ENV["EXPO_PUBLIC_API_ENV"] ||
+    ENV["AGENTTOWN_API_ENV"] ||
+    DEFAULT_API_ENV
+  API_ENV_BASE_URLS.fetch(api_env.to_s.strip.downcase, API_ENV_BASE_URLS.fetch(DEFAULT_API_ENV))
 end
 
 def ensure_full_xcode_selected!
@@ -97,11 +122,7 @@ platform :ios do
 
   desc "Build an App Store IPA locally"
   lane :build_release do |options|
-    api_base_url =
-      options[:api_base_url] ||
-      ENV["EXPO_PUBLIC_API_BASE_URL"] ||
-      ENV["AGENTTOWN_API_BASE_URL"] ||
-      "https://agenttown-api.kittens.cloud"
+    api_base_url = resolve_api_base_url(options)
     ENV["EXPO_PUBLIC_API_BASE_URL"] = api_base_url
     UI.important("Using EXPO_PUBLIC_API_BASE_URL=#{api_base_url} for iOS release build")
 

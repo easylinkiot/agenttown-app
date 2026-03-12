@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { getRuntimeApiBaseUrl } from "./api-base-url";
 
 interface GeminiHistoryItem {
   role: "user" | "model";
@@ -12,22 +12,8 @@ interface GenerateTextInput {
   responseMimeType?: "text/plain" | "application/json";
 }
 
-const DEFAULT_BACKEND_BASE_URL = "https://agenttown-api.kittens.cloud";
-
 function getBackendBaseUrl(): string {
-  const raw = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_BACKEND_BASE_URL;
-  const trimmed = raw.replace(/\/+$/, "");
-  const normalized =
-    Platform.OS !== "android"
-      ? trimmed
-      : trimmed
-    .replace(/^http:\/\/localhost(?=[:/]|$)/i, "http://10.0.2.2")
-    .replace(/^http:\/\/127\.0\.0\.1(?=[:/]|$)/i, "http://10.0.2.2");
-  const isReleaseBuild = typeof __DEV__ === "undefined" ? true : !__DEV__;
-  if (isReleaseBuild && /^http:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2)(?=[:/]|$)/i.test(normalized)) {
-    return DEFAULT_BACKEND_BASE_URL;
-  }
-  return normalized;
+  return getRuntimeApiBaseUrl();
 }
 
 export async function generateGeminiText({

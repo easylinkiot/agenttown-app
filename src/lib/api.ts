@@ -20,7 +20,7 @@ import {
   ThreadMemberType,
 } from "@/src/types";
 import { getE2ELaunchArgs, isE2ETestMode } from "@/src/utils/e2e";
-import { Platform } from "react-native";
+import { resolveApiBaseUrl } from "./api-base-url";
 
 export interface BootstrapPayload extends AppBootstrapState {}
 
@@ -493,8 +493,6 @@ export interface UnregisterPushDeviceInput {
   expoPushToken: string;
 }
 
-const DEFAULT_API_BASE_URL = "https://agenttown-api.kittens.cloud";
-
 type ApiErrorBody = {
   error?: {
     code?: unknown;
@@ -800,29 +798,11 @@ function getApiBaseUrl() {
   const e2eArgs = getE2ELaunchArgs();
   const e2eApiBaseUrl =
     typeof e2eArgs?.e2eApiBaseUrl === "string" ? e2eArgs.e2eApiBaseUrl.trim() : "";
-  const raw =
-    e2eApiBaseUrl ||
-    process.env.EXPO_PUBLIC_E2E_API_BASE_URL ||
-    process.env.EXPO_PUBLIC_API_BASE_URL ||
-    DEFAULT_API_BASE_URL;
-  const trimmed = raw.replace(/\/+$/, "");
-  const normalized =
-    Platform.OS !== "android"
-      ? trimmed
-      : trimmed
-    .replace(/^http:\/\/localhost(?=[:/]|$)/i, "http://10.0.2.2")
-    .replace(/^http:\/\/127\.0\.0\.1(?=[:/]|$)/i, "http://10.0.2.2");
-  const isReleaseBuild = typeof __DEV__ === "undefined" ? true : !__DEV__;
-  if (
-    isReleaseBuild &&
-    !isE2ETestMode() &&
-    !e2eApiBaseUrl &&
-    !process.env.EXPO_PUBLIC_E2E_API_BASE_URL &&
-    /^http:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2)(?=[:/]|$)/i.test(normalized)
-  ) {
-    return DEFAULT_API_BASE_URL;
-  }
-  return normalized;
+  return resolveApiBaseUrl({
+    e2eBaseUrl: e2eApiBaseUrl || process.env.EXPO_PUBLIC_E2E_API_BASE_URL,
+    explicitBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL,
+    allowLocalhostInRelease: isE2ETestMode() || Boolean(e2eApiBaseUrl || process.env.EXPO_PUBLIC_E2E_API_BASE_URL),
+  });
 }
 
 function getRealtimeBaseUrl() {

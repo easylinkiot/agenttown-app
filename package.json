@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
+    "start:stage": "EXPO_PUBLIC_API_ENV=stage expo start",
+    "start:dev": "EXPO_PUBLIC_API_ENV=dev expo start",
+    "start:local": "EXPO_PUBLIC_API_ENV=local EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8080 expo start",
     "android": "expo start --android",
     "android-device": "expo run:android --device",
     "ios": "expo start --ios",
@@ -43,6 +46,9 @@
     "check": "npm run typecheck && npm run lint && npm run test:ci",
     "fastlane:prepare:ios": "fastlane ios prepare --env fastlane",
     "fastlane:build:ios": "fastlane ios build_release --env fastlane",
+    "fastlane:build:ios:stage": "EXPO_PUBLIC_API_ENV=stage fastlane ios build_release --env fastlane",
+    "fastlane:build:ios:dev": "EXPO_PUBLIC_API_ENV=dev fastlane ios build_release --env fastlane",
+    "fastlane:build:ios:local": "EXPO_PUBLIC_API_ENV=local EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8080 fastlane ios build_release --env fastlane",
     "fastlane:deploy:ios": "fastlane ios deploy_testflight --env fastlane"
   },
   "dependencies": {

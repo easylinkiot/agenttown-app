@@ -1,10 +1,9 @@
-import { Platform } from "react-native";
 import type { EventSourceEvent } from "react-native-sse";
 
+import { getRuntimeApiBaseUrl } from "@/src/lib/api-base-url";
 import { getAuthToken } from "@/src/lib/api";
 import { SSEClient } from "@/src/lib/sse-client";
 
-const DEFAULT_API_BASE_URL = "https://agenttown-api.kittens.cloud";
 const ASK_ANYTHING_STREAM_CANDIDATE_ID = "__assist_ask_anything_stream__";
 const ASSIST_DEBUG_PREFIX = "[chatAssist]";
 const AGENTTOWN_FALLBACK_PREFIX = "[agenttown-fallback]";
@@ -160,19 +159,7 @@ const CHAT_ASSIST_CUSTOM_EVENTS: ChatAssistSSEEventName[] = [
 ];
 
 export function getApiBaseUrl() {
-  const raw = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
-  const trimmed = raw.replace(/\/+$/, "");
-  const normalized =
-    Platform.OS !== "android"
-      ? trimmed
-      : trimmed
-    .replace(/^http:\/\/localhost(?=[:/]|$)/i, "http://10.0.2.2")
-    .replace(/^http:\/\/127\.0\.0\.1(?=[:/]|$)/i, "http://10.0.2.2");
-  const isReleaseBuild = typeof __DEV__ === "undefined" ? true : !__DEV__;
-  if (isReleaseBuild && /^http:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2)(?=[:/]|$)/i.test(normalized)) {
-    return DEFAULT_API_BASE_URL;
-  }
-  return normalized;
+  return getRuntimeApiBaseUrl();
 }
 
 function toText(value: unknown) {

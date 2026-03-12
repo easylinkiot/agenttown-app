@@ -24,7 +24,9 @@ AWS EC2 deployment notes:
 Frontend env should point to backend:
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=http://localhost:8080
+EXPO_PUBLIC_API_ENV=stage
+# Optional custom override:
+# EXPO_PUBLIC_API_BASE_URL=http://localhost:8080
 ```
 
 ## Migrated Features
@@ -163,6 +165,8 @@ AgentTown/
 nvm use
 npm install
 npm run start
+# or connect to local backend directly
+# npm run start:local
 ```
 
 Optional env for AI:
@@ -174,12 +178,21 @@ cp .env.example .env.local
 Then set:
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=http://localhost:8080
+EXPO_PUBLIC_API_ENV=local
+EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8080
 AGENTTOWN_OPENAI_API_KEY=your_openai_key
 AGENTTOWN_OPENAI_MODEL=gpt-4.1-mini
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=...
 EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=...
 EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=...
+```
+
+Quick switches:
+
+```bash
+npm run start:stage
+npm run start:dev
+npm run start:local
 ```
 
 ## Authentication Notes
