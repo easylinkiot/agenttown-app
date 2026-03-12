@@ -197,6 +197,34 @@ export function normalizeConversationMessageTimestamps(message: ConversationMess
   };
 }
 
+export function normalizeConversationMessageId(
+  message: Pick<ConversationMessage, "id">,
+  fallbackId = ""
+) {
+  const normalizedId = typeof message.id === "string" ? message.id.trim() : "";
+  return normalizedId || fallbackId;
+}
+
+export function dedupeConversationMessagesById(messages: ConversationMessage[]) {
+  const byId = new Map<string, ConversationMessage>();
+  const withoutId: ConversationMessage[] = [];
+
+  for (const message of messages) {
+    const normalized = normalizeConversationMessageTimestamps(message);
+    const normalizedId = normalizeConversationMessageId(normalized);
+    if (!normalizedId) {
+      withoutId.push(normalized);
+      continue;
+    }
+    byId.set(normalizedId, {
+      ...normalized,
+      id: normalizedId,
+    });
+  }
+
+  return sortConversationMessagesChronologically([...byId.values(), ...withoutId]);
+}
+
 export function resolveConversationDisplayTimeValue(message: Pick<ConversationMessage, "time" | "createdAt" | "updatedAt" | "receivedAt">) {
   const normalized = normalizeConversationMessageTimestamps(message as ConversationMessage);
   return normalized.receivedAt || normalized.createdAt || normalized.updatedAt || normalized.time || "";

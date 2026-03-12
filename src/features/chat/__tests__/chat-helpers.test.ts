@@ -1,6 +1,8 @@
 import {
+  dedupeConversationMessagesById,
   formatConversationDisplayTime,
   formatConversationMessageDisplayTime,
+  normalizeConversationMessageId,
   normalizeConversationMessageTimestamps,
   parseConversationTimestamp,
   resolveConversationSortTimestamp,
@@ -42,6 +44,35 @@ describe("chat helpers", () => {
 
     expect(message.createdAt).toBe("2026-03-10T18:32:10.123Z");
     expect(message.receivedAt).toBe("2026-03-10T18:32:10.123Z");
+  });
+
+  it("normalizes message ids before list rendering uses them as keys", () => {
+    expect(normalizeConversationMessageId(createMessage({ id: "  msg_1  " }))).toBe("msg_1");
+    expect(normalizeConversationMessageId(createMessage({ id: "   " }), "fallback_1")).toBe("fallback_1");
+  });
+
+  it("dedupes repeated messages by normalized id and keeps the latest payload", () => {
+    const messages = dedupeConversationMessagesById([
+      createMessage({
+        id: " msg_1 ",
+        content: "first",
+        receivedAt: "2026-03-10T18:32:10.123Z",
+      }),
+      createMessage({
+        id: "msg_1",
+        content: "latest",
+        receivedAt: "2026-03-10T18:32:10.456Z",
+      }),
+      createMessage({
+        id: "msg_2",
+        content: "other",
+        receivedAt: "2026-03-10T18:32:10.789Z",
+      }),
+    ]);
+
+    expect(messages).toHaveLength(2);
+    expect(messages.map((item) => item.id)).toEqual(["msg_1", "msg_2"]);
+    expect(messages[0]?.content).toBe("latest");
   });
 
   it("sorts messages by received timestamp before seq number", () => {

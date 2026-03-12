@@ -54,10 +54,11 @@ import {
   buildTaskItemFromCandidate,
 } from "@/src/features/chat/ask-ai-helpers";
 import {
+  dedupeConversationMessagesById,
   formatConversationMessageDisplayTime,
+  normalizeConversationMessageId,
   normalizeConversationMessageTimestamps,
   resolveConversationSortTimestamp,
-  sortConversationMessagesChronologically,
 } from "@/src/features/chat/chat-helpers";
 import {
   inferUploadFilename,
@@ -775,13 +776,20 @@ function toGiftedMessage(
   fallbackTime: number
 ): GiftedMessage {
   const normalizedMessage = normalizeConversationMessageTimestamps(message);
+  const messageId = normalizeConversationMessageId(normalizedMessage, `${fallbackTime}`);
   const senderID = (normalizedMessage.senderId || "").trim();
   const isMe = senderID !== "" && currentUserId ? senderID === currentUserId : Boolean(message.isMe);
   const parsedTime = resolveConversationSortTimestamp(normalizedMessage);
   const createdAt = typeof parsedTime === "number" ? new Date(parsedTime) : new Date(fallbackTime);
+  const rawMessage = normalizedMessage.id === messageId
+    ? normalizedMessage
+    : {
+        ...normalizedMessage,
+        id: messageId,
+      };
 
   return {
-    _id: normalizedMessage.id || `${fallbackTime}`,
+    _id: messageId,
     text: normalizedMessage.content || "",
     createdAt,
     user: {
@@ -789,8 +797,8 @@ function toGiftedMessage(
       name: normalizedMessage.senderName,
       avatar: normalizedMessage.senderAvatar,
     },
-    system: normalizedMessage.type === "system",
-    raw: normalizedMessage,
+    system: rawMessage.type === "system",
+    raw: rawMessage,
   };
 }
 
@@ -1119,7 +1127,7 @@ export default function GroupChatScreen() {
 
   const members = threadMembers[chatId] || [];
   const messages = useMemo(
-    () => sortConversationMessagesChronologically(messagesByThread[chatId] || EMPTY_MESSAGES),
+    () => dedupeConversationMessagesById(messagesByThread[chatId] || EMPTY_MESSAGES),
     [messagesByThread, chatId]
   );
   const currentUserTaskAssignee = useMemo(
