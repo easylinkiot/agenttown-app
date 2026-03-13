@@ -338,7 +338,7 @@ function mergePrependUnique(base: ConversationMessage[], incoming: ConversationM
     seen.add(msg.id);
     head.push(msg);
   }
-  return [...head, ...base];
+  return sortConversationMessagesChronologically([...head, ...base]);
 }
 
 async function upsertThreadCache(userId: string, threadId: string, messages: ConversationMessage[]) {
@@ -1305,7 +1305,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             const history = prev[threadId] || [];
             return {
               ...prev,
-              [threadId]: [...chunk, ...history],
+              [threadId]: sortConversationMessagesChronologically([...chunk, ...history]),
             };
           });
           return chunk.length;
@@ -1363,7 +1363,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       if (uniqueOlder.length === 0) return prev;
       return {
         ...prev,
-        [threadId]: [...uniqueOlder, ...history],
+        [threadId]: sortConversationMessagesChronologically([...uniqueOlder, ...history]),
       };
     });
     if (useThreadCache) {

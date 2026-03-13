@@ -75,7 +75,7 @@ describe("chat helpers", () => {
     expect(messages[0]?.content).toBe("latest");
   });
 
-  it("sorts messages by received timestamp before seq number", () => {
+  it("sorts seq-backed messages chronologically when timestamps align", () => {
     const messages = sortConversationMessagesChronologically([
       createMessage({
         id: "reply",
@@ -94,6 +94,44 @@ describe("chat helpers", () => {
     ]);
 
     expect(messages.map((item) => item.id)).toEqual(["question", "reply"]);
+  });
+
+  it("prefers seq ordering when timestamps conflict with paged history order", () => {
+    const messages = sortConversationMessagesChronologically([
+      createMessage({
+        id: "older-page",
+        seqNo: 8,
+        receivedAt: "2026-03-10T18:32:10.999Z",
+      }),
+      createMessage({
+        id: "current-list",
+        seqNo: 10,
+        receivedAt: "2026-03-10T18:32:10.123Z",
+      }),
+      createMessage({
+        id: "current-list-2",
+        seqNo: 11,
+        receivedAt: "2026-03-10T18:32:10.124Z",
+      }),
+    ]);
+
+    expect(messages.map((item) => item.id)).toEqual(["older-page", "current-list", "current-list-2"]);
+  });
+
+  it("falls back to timestamps when only one message has seq number", () => {
+    const messages = sortConversationMessagesChronologically([
+      createMessage({
+        id: "server-message",
+        seqNo: 20,
+        receivedAt: "2026-03-10T18:32:10.123Z",
+      }),
+      createMessage({
+        id: "local-pending",
+        receivedAt: "2026-03-10T18:32:10.999Z",
+      }),
+    ]);
+
+    expect(messages.map((item) => item.id)).toEqual(["server-message", "local-pending"]);
   });
 
   it("sorts time-only messages chronologically when seq numbers are missing", () => {

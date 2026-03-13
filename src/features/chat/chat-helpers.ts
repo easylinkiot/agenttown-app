@@ -372,6 +372,12 @@ export function sortConversationMessagesChronologically(messages: ConversationMe
       message: normalizeConversationMessageTimestamps(message),
     }))
     .sort((left, right) => {
+      const aSeq = typeof left.message.seqNo === "number" ? left.message.seqNo : null;
+      const bSeq = typeof right.message.seqNo === "number" ? right.message.seqNo : null;
+      if (aSeq !== null && bSeq !== null && aSeq !== bSeq) {
+        return aSeq - bSeq;
+      }
+
       const at = resolveConversationSortTimestamp(left.message);
       const bt = resolveConversationSortTimestamp(right.message);
       if (typeof at === "number" && typeof bt === "number" && at !== bt) {
@@ -379,14 +385,6 @@ export function sortConversationMessagesChronologically(messages: ConversationMe
       }
       if (typeof at === "number" && typeof bt !== "number") return -1;
       if (typeof bt === "number" && typeof at !== "number") return 1;
-
-      const aSeq = typeof left.message.seqNo === "number" ? left.message.seqNo : null;
-      const bSeq = typeof right.message.seqNo === "number" ? right.message.seqNo : null;
-      if (aSeq !== null && bSeq !== null && aSeq !== bSeq) {
-        return aSeq - bSeq;
-      }
-      if (aSeq !== null && bSeq === null) return -1;
-      if (bSeq !== null && aSeq === null) return 1;
 
       const idCompare = String(left.message.id || "").localeCompare(String(right.message.id || ""));
       if (idCompare !== 0) return idCompare;

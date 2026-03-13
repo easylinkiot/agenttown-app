@@ -813,6 +813,12 @@ function isLikelySameMessage(a: GiftedMessage, b: GiftedMessage) {
 }
 
 function compareGiftedMessagesDesc(a: GiftedMessage, b: GiftedMessage) {
+  const aSeq = typeof a.raw?.seqNo === "number" ? a.raw.seqNo : null;
+  const bSeq = typeof b.raw?.seqNo === "number" ? b.raw.seqNo : null;
+  if (aSeq !== null && bSeq !== null && aSeq !== bSeq) {
+    return bSeq - aSeq;
+  }
+
   const at = resolveConversationSortTimestamp(a.raw);
   const bt = resolveConversationSortTimestamp(b.raw);
   if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) {
@@ -820,12 +826,6 @@ function compareGiftedMessagesDesc(a: GiftedMessage, b: GiftedMessage) {
   }
   if (Number.isFinite(bt) && !Number.isFinite(at)) return 1;
   if (Number.isFinite(at) && !Number.isFinite(bt)) return -1;
-
-  const aSeq = typeof a.raw?.seqNo === "number" ? a.raw.seqNo : null;
-  const bSeq = typeof b.raw?.seqNo === "number" ? b.raw.seqNo : null;
-  if (aSeq !== null && bSeq !== null && aSeq !== bSeq) {
-    return bSeq - aSeq;
-  }
 
   return String(b._id).localeCompare(String(a._id));
 }
