@@ -1093,19 +1093,19 @@ export default function HomeScreen() {
                 <View style={styles.onlineDot} />
               </Pressable>
 
-              <Pressable style={styles.worldMapPill} onPress={() => router.push("/town-map" as never)}>
+              {/* <Pressable style={styles.worldMapPill} onPress={() => router.push("/town-map" as never)}>
                 <Ionicons name="globe-outline" size={14} color="rgba(226,232,240,0.92)" />
                 <Text style={styles.worldMapText}>{tr("世界地图", "WORLD MAP")}</Text>
-              </Pressable>
+              </Pressable> */}
 
-              <View style={styles.topActions}>
+              {/* <View style={styles.topActions}>
                 <Pressable style={styles.topIcon} onPress={() => router.push("/town-map" as never)}>
                   <Ionicons name="locate-outline" size={16} color="rgba(226,232,240,0.92)" />
                 </Pressable>
                 <Pressable style={styles.topIcon} testID="home-quick-actions-open" onPress={() => setPeopleModal(true)}>
                   <Ionicons name="people-outline" size={16} color="rgba(226,232,240,0.92)" />
                 </Pressable>
-              </View>
+              </View> */}
             </View>
 
             <View style={styles.townAskWrap}>
@@ -1133,7 +1133,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            <View style={styles.townActionRow}>
+            {/* <View style={styles.townActionRow}>
               <Pressable style={styles.townActionPill} onPress={() => router.push("/town-map" as never)}>
                 <Ionicons name="planet-outline" size={14} color="rgba(226,232,240,0.95)" />
                 <Text style={styles.townActionText}>{tr("Bot Park", "Bot Park")}</Text>
@@ -1142,7 +1142,7 @@ export default function HomeScreen() {
                 <Ionicons name="construct-outline" size={14} color="rgba(226,232,240,0.95)" />
                 <Text style={styles.townActionText}>{tr("Maker Park", "Maker Park")}</Text>
               </Pressable>
-            </View>
+            </View> */}
 
             <View style={styles.homeTeamBarWrap}>
               <View style={styles.homeTeamBar}>
@@ -1261,10 +1261,10 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <Pressable style={styles.myHomeChip} onPress={() => router.push("/living-room" as never)}>
+            {/* <Pressable style={styles.myHomeChip} onPress={() => router.push("/living-room" as never)}>
               <Ionicons name="home-outline" size={12} color="rgba(226,232,240,0.95)" />
               <Text style={styles.myHomeText}>{tr("My Home", "My Home")}</Text>
-            </Pressable>
+            </Pressable> */}
 
           </View>
 
