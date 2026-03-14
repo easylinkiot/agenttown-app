@@ -17,6 +17,7 @@ export function MeetingCoordinator() {
   } = useAgentTown();
   const [busyAction, setBusyAction] = useState<"accept" | "reject" | "">("");
   const lastActiveThreadIdRef = useRef("");
+  const lastRoutedMeetingIdRef = useRef("");
   const isMeetingRoute = String(segments[0] || "") === "meeting";
   const currentMeetingId = isMeetingRoute ? String(segments[1] || "") : "";
 
@@ -33,12 +34,18 @@ export function MeetingCoordinator() {
 
   useEffect(() => {
     if (!activeMeetingSession?.id) return;
-    if (currentMeetingId === activeMeetingSession.id) return;
-    router.push(`/meeting/${activeMeetingSession.id}` as never);
+    if (currentMeetingId === activeMeetingSession.id) {
+      lastRoutedMeetingIdRef.current = activeMeetingSession.id;
+      return;
+    }
+    if (lastRoutedMeetingIdRef.current === activeMeetingSession.id) return;
+    lastRoutedMeetingIdRef.current = activeMeetingSession.id;
+    router.replace(`/meeting/${activeMeetingSession.id}` as never);
   }, [activeMeetingSession?.id, currentMeetingId, router]);
 
   useEffect(() => {
     if (activeMeetingSession) return;
+    lastRoutedMeetingIdRef.current = "";
     if (!isMeetingRoute) return;
 
     const fallbackThread = chatThreads.find((thread) => thread.id === lastActiveThreadIdRef.current);

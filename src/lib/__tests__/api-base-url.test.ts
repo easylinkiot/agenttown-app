@@ -16,7 +16,7 @@ describe("api base url config", () => {
     delete process.env.EXPO_PUBLIC_API_ENV;
 
     expect(getApiEnvironment()).toBe(DEFAULT_API_ENV);
-    expect(getDefaultApiBaseUrl()).toBe("https://agenttown-api.kittens.cloud");
+    expect(getDefaultApiBaseUrl()).toBe("https://api.agtown.ai");
   });
 
   it("supports dev environment alias", () => {
