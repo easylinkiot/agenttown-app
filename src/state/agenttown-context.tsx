@@ -22,6 +22,7 @@ import {
   mergeMiniAppRuntimeContent,
 } from "@/src/features/miniapps/runtime";
 import {
+  acceptMeeting as acceptMeetingApi,
   addThreadMember as addThreadMemberApi,
   createAgent as createAgentApi,
   createChatThread,
@@ -32,6 +33,7 @@ import {
   deleteChatThread as deleteChatThreadApi,
   deleteCustomSkill as deleteCustomSkillApi,
   deleteAgent as deleteAgentApi,
+  endMeeting as endMeetingApi,
   deleteFriend as deleteFriendApi,
   deleteMiniApp as deleteMiniAppApi,
   atCreateSession,
@@ -42,6 +44,7 @@ import {
   installBotSkill as installBotSkillApi,
   installMiniApp as installMiniAppApi,
   installPresetMiniApp as installPresetMiniAppApi,
+  leaveMeeting as leaveMeetingApi,
   listNPCs as listNPCsApi,
   listThreadMembers as listThreadMembersApi,
   listThreadMessages as listThreadMessagesApi,
@@ -63,22 +66,39 @@ import {
   mapATMessageToConversation,
   markThreadRead as markThreadReadApi,
   mapATSessionToThread,
+  rejectMeeting as rejectMeetingApi,
+  requestMeeting as requestMeetingApi,
   type AddThreadMemberInput,
   type ATChatMessage,
   type CreateAgentInput,
   type CreateCustomSkillInput,
+  type MeetingRequestInput,
   type SendThreadMessageInput,
   type SendThreadMessageOutput,
   type V2ChatSessionMessage,
 } from "@/src/lib/api";
 import {
+  buildMeetingRuntimeSessionFromOperationResponse,
+  buildMeetingRuntimeSessionFromSignal,
+  buildMeetingRuntimeSessionFromThreadSummary,
+  getMeetingPreviewText,
+  getMeetingPreviewTextFromMessageContent,
+  isActiveMeetingSession,
+  isIncomingMeetingSession,
+  isMeetingSessionTerminal,
+  parseMeetingSignalContent,
+  pickNewestMeetingSession,
+} from "@/src/features/meeting/meeting-helpers";
+import {
   Agent,
   AppLanguage,
   BotConfig,
   ChatThread,
+  ChatThreadMeetingSession,
   ConversationMessage,
   CustomSkill,
   Friend,
+  MeetingRuntimeSession,
   MiniApp,
   MiniAppTemplate,
   NPC,
@@ -124,6 +144,9 @@ interface AgentTownContextValue {
   threadLanguageById: Record<string, ThreadDisplayLanguage>;
   voiceModeEnabled: boolean;
   bootstrapReady: boolean;
+  meetingSessionsById: Record<string, MeetingRuntimeSession>;
+  incomingMeetingSession: MeetingRuntimeSession | null;
+  activeMeetingSession: MeetingRuntimeSession | null;
   updateBotConfig: (next: BotConfig) => void;
   addTask: (task: TaskItem) => void;
   addChatThread: (thread: ChatThread) => void;
@@ -140,6 +163,11 @@ interface AgentTownContextValue {
   ) => Promise<void>;
   loadOlderMessages: (threadId: string) => Promise<number>;
   sendMessage: (threadId: string, payload: SendThreadMessageInput) => Promise<SendThreadMessageOutput | null>;
+  requestMeeting: (input: MeetingRequestInput) => Promise<MeetingRuntimeSession | null>;
+  acceptMeeting: (meetingSessionId: string) => Promise<MeetingRuntimeSession | null>;
+  rejectMeeting: (meetingSessionId: string, reason?: string) => Promise<MeetingRuntimeSession | null>;
+  leaveMeeting: (meetingSessionId: string, reason?: string) => Promise<MeetingRuntimeSession | null>;
+  endMeeting: (meetingSessionId: string, reason?: string) => Promise<MeetingRuntimeSession | null>;
   createFriend: (input: {
     userId: string;
     name?: string;
@@ -449,6 +477,21 @@ function updateThreadPreview(threads: ChatThread[], threadId: string, preview: s
   return next;
 }
 
+function updateThreadMeetingSession(
+  threads: ChatThread[],
+  threadId: string,
+  meetingSession: ChatThreadMeetingSession
+): ChatThread[] {
+  return threads.map((thread) =>
+    thread.id === threadId
+      ? {
+          ...thread,
+          meetingSession,
+        }
+      : thread
+  );
+}
+
 function updateThreadUnreadState(
   threads: ChatThread[],
   threadId: string,
@@ -609,6 +652,9 @@ function mapV2SessionMessageToConversation(
 }
 
 function previewMessage(message: ConversationMessage): string {
+  if (message.type === "meeting") {
+    return getMeetingPreviewTextFromMessageContent(message.content) || "[Call]";
+  }
   if (message.type === "image") {
     return message.content ? `[Image] ${message.content}` : "[Image]";
   }
@@ -816,6 +862,11 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
   const [threadLanguageById, setThreadLanguageById] = useState<Record<string, ThreadDisplayLanguage>>({});
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
   const [bootstrapReady, setBootstrapReady] = useState(false);
+  const [meetingSessionsById, setMeetingSessionsById] = useState<Record<string, MeetingRuntimeSession>>({});
+  const meetingSessionsRef = useRef<Record<string, MeetingRuntimeSession>>({});
+  useEffect(() => {
+    meetingSessionsRef.current = meetingSessionsById;
+  }, [meetingSessionsById]);
   const notificationSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const threadLanguageSyncSignatureRef = useRef("");
   const explicitLanguagePreferenceRef = useRef(false);
@@ -954,6 +1005,110 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, []);
 
+  const syncMeetingSessionToState = useCallback(
+    (nextSession: MeetingRuntimeSession, options?: { updatePreview?: boolean; reorderThread?: boolean }) => {
+      if (!nextSession?.id || !nextSession.threadId) return;
+
+      setMeetingSessionsById((prev) => ({
+        ...prev,
+        [nextSession.id]: nextSession,
+      }));
+
+      const nextSummary: ChatThreadMeetingSession = {
+        id: nextSession.id,
+        mode: nextSession.mode,
+        inviteState: nextSession.inviteState,
+        sessionState: nextSession.sessionState,
+        closeReason: nextSession.closeReason || nextSession.reason,
+        viewStatus: nextSession.viewStatus,
+        acceptable: nextSession.acceptable,
+        rejectable: nextSession.rejectable,
+        durationSec: nextSession.durationSec,
+        creatorUserId: nextSession.creatorUserId,
+        participants: nextSession.participants,
+      };
+
+      setChatThreads((prev) => {
+        let nextThreads = updateThreadMeetingSession(prev, nextSession.threadId, nextSummary);
+        if (options?.updatePreview) {
+          nextThreads = updateThreadPreview(nextThreads, nextSession.threadId, getMeetingPreviewText(nextSession));
+        }
+        return nextThreads;
+      });
+    },
+    []
+  );
+
+  const hydrateMeetingSessionsFromThreads = useCallback(
+    (threads: ChatThread[]) => {
+      for (const thread of threads) {
+        const summary = thread.meetingSession;
+        if (!summary?.id) continue;
+        const existing = meetingSessionsRef.current[summary.id];
+        const nextSession = buildMeetingRuntimeSessionFromThreadSummary({
+          threadId: thread.id,
+          summary,
+          existing,
+          updatedAt: existing?.updatedAt || new Date().toISOString(),
+        });
+        if (!nextSession) continue;
+        syncMeetingSessionToState(nextSession);
+      }
+    },
+    [syncMeetingSessionToState]
+  );
+
+  const applyMeetingSignalMessage = useCallback(
+    (message: ConversationMessage, fallbackThreadId: string, receivedAt?: string) => {
+      const signal = parseMeetingSignalContent(message.content);
+      if (!signal?.id) return null;
+      const threadId = (signal.threadId || fallbackThreadId || "").trim();
+      if (!threadId) return null;
+      const existing = meetingSessionsRef.current[signal.id];
+      const nextSession = buildMeetingRuntimeSessionFromSignal({
+        threadId,
+        signal,
+        existing,
+        updatedAt: receivedAt || message.receivedAt || new Date().toISOString(),
+        lastMessageId: message.id,
+      });
+      if (!nextSession) return null;
+      syncMeetingSessionToState(nextSession, { updatePreview: true });
+      return nextSession;
+    },
+    [syncMeetingSessionToState]
+  );
+
+  const upsertMeetingOperationSession = useCallback(
+    (response: unknown, fallbackThreadId?: string) => {
+      const existingSession = fallbackThreadId
+        ? pickNewestMeetingSession(
+            meetingSessionsRef.current,
+            (session) => session.threadId === fallbackThreadId && !isMeetingSessionTerminal(session)
+          )
+        : null;
+      const nextSession = buildMeetingRuntimeSessionFromOperationResponse({
+        response,
+        fallbackThreadId,
+        existing: existingSession || undefined,
+        updatedAt: new Date().toISOString(),
+      });
+      if (!nextSession) return null;
+      syncMeetingSessionToState(nextSession, { updatePreview: true, reorderThread: true });
+      return nextSession;
+    },
+    [syncMeetingSessionToState]
+  );
+
+  const incomingMeetingSession = useMemo(
+    () => pickNewestMeetingSession(meetingSessionsById, (session) => isIncomingMeetingSession(session)),
+    [meetingSessionsById]
+  );
+  const activeMeetingSession = useMemo(
+    () => pickNewestMeetingSession(meetingSessionsById, (session) => isActiveMeetingSession(session)),
+    [meetingSessionsById]
+  );
+
   const refreshAll = useCallback(async () => {
     const [bootstrapResult, threadsResult] = await Promise.allSettled([
       fetchBootstrap(),
@@ -991,6 +1146,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       setChatThreads(
         payload?.botConfig ? syncMyBotThreads(mergedThreads, payload.botConfig) : mergedThreads
       );
+      hydrateMeetingSessionsFromThreads(mergedThreads);
     }
     if (payload?.messages && typeof payload.messages === "object") {
       setMessagesByThread(normalizeMessagesByThreadForUser(payload.messages, userID));
@@ -1036,7 +1192,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     ) {
       throw bootstrapResult.reason;
     }
-  }, [persistAppLanguage, userID]);
+  }, [hydrateMeetingSessionsFromThreads, persistAppLanguage, userID]);
 
   const updateThreadLanguage = useCallback(
     async (threadId: string, next: ThreadDisplayLanguage) => {
@@ -1440,6 +1596,7 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       setMiniApps(defaultMiniApps);
       setMiniAppTemplates(defaultMiniAppTemplates);
       setThreadLanguageById({});
+      setMeetingSessionsById({});
       setBootstrapReady(true);
       return () => {
         cancelled = true;
@@ -1500,6 +1657,9 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
           const payload = event.payload as ChatThread;
           if (!payload?.id) break;
           setChatThreads((prev) => upsertById(prev, payload, true));
+          if (payload.meetingSession?.id) {
+            hydrateMeetingSessionsFromThreads([payload]);
+          }
           break;
         }
         case "chat.thread.deleted": {
@@ -1524,6 +1684,11 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
             const next = { ...previous };
             delete next[threadId];
             return next;
+          });
+          setMeetingSessionsById((prev) => {
+            const entries = Object.entries(prev).filter(([, session]) => session.threadId !== threadId);
+            if (entries.length === Object.keys(prev).length) return prev;
+            return Object.fromEntries(entries);
           });
           break;
         }
@@ -1557,6 +1722,9 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
 
           if (shouldUseThreadMessageCache(threadId)) {
             void upsertThreadCache(userID, threadId, [normalizedPayload]);
+          }
+          if (normalizedPayload.type === "meeting") {
+            applyMeetingSignalMessage(normalizedPayload, threadId, eventTimestamp);
           }
           setChatThreads((prev) => updateThreadPreview(prev, threadId, previewMessage(normalizedPayload)));
           if (!normalizedPayload.isMe) {
@@ -1813,7 +1981,102 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     return () => {
       unsubscribe();
     };
-  }, [isSignedIn, language, patchThreadLanguageMap, shouldUseThreadMessageCache, userID]);
+  }, [
+    applyMeetingSignalMessage,
+    hydrateMeetingSessionsFromThreads,
+    isSignedIn,
+    language,
+    patchThreadLanguageMap,
+    shouldUseThreadMessageCache,
+    userID,
+  ]);
+
+  const requestMeeting = useCallback(
+    async (input: MeetingRequestInput) => {
+      const threadId = (input.threadId || "").trim();
+      if (!threadId) return null;
+
+      const currentSession = pickNewestMeetingSession(
+        meetingSessionsRef.current,
+        (session) => session.threadId === threadId && !isMeetingSessionTerminal(session)
+      );
+      if (currentSession) {
+        return currentSession;
+      }
+
+      try {
+        const response = await requestMeetingApi({
+          ...input,
+          threadId,
+          defaultCameraOn: input.defaultCameraOn ?? input.mode === "video",
+        });
+        return upsertMeetingOperationSession(response, threadId);
+      } catch {
+        return null;
+      }
+    },
+    [upsertMeetingOperationSession]
+  );
+
+  const acceptMeeting = useCallback(
+    async (meetingSessionId: string) => {
+      const id = (meetingSessionId || "").trim();
+      if (!id) return null;
+      try {
+        const response = await acceptMeetingApi(id);
+        const fallbackThreadId = meetingSessionsRef.current[id]?.threadId;
+        return upsertMeetingOperationSession(response, fallbackThreadId);
+      } catch {
+        return null;
+      }
+    },
+    [upsertMeetingOperationSession]
+  );
+
+  const rejectMeeting = useCallback(
+    async (meetingSessionId: string, reason?: string) => {
+      const id = (meetingSessionId || "").trim();
+      if (!id) return null;
+      try {
+        const response = await rejectMeetingApi(id, { reason });
+        const fallbackThreadId = meetingSessionsRef.current[id]?.threadId;
+        return upsertMeetingOperationSession(response, fallbackThreadId);
+      } catch {
+        return null;
+      }
+    },
+    [upsertMeetingOperationSession]
+  );
+
+  const leaveMeeting = useCallback(
+    async (meetingSessionId: string, reason?: string) => {
+      const id = (meetingSessionId || "").trim();
+      if (!id) return null;
+      try {
+        const response = await leaveMeetingApi(id, { reason });
+        const fallbackThreadId = meetingSessionsRef.current[id]?.threadId;
+        return upsertMeetingOperationSession(response, fallbackThreadId);
+      } catch {
+        return null;
+      }
+    },
+    [upsertMeetingOperationSession]
+  );
+
+  const endMeeting = useCallback(
+    async (meetingSessionId: string, reason?: string) => {
+      const id = (meetingSessionId || "").trim();
+      if (!id) return null;
+      try {
+        const response = await endMeetingApi(id, { reason });
+        const fallbackThreadId = meetingSessionsRef.current[id]?.threadId;
+        return upsertMeetingOperationSession(response, fallbackThreadId);
+      } catch {
+        return null;
+      }
+    },
+    [upsertMeetingOperationSession]
+  );
 
   const value = useMemo<AgentTownContextValue>(() => {
     return {
@@ -1836,6 +2099,9 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       threadLanguageById,
       voiceModeEnabled,
       bootstrapReady,
+      meetingSessionsById,
+      incomingMeetingSession,
+      activeMeetingSession,
       updateBotConfig: (next) => {
         setBotConfig(next);
         setChatThreads((prev) => syncMyBotThreads(prev, next));
@@ -1904,6 +2170,11 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       refreshAll,
       refreshThreadMessages,
       loadOlderMessages,
+      requestMeeting,
+      acceptMeeting,
+      rejectMeeting,
+      leaveMeeting,
+      endMeeting,
       sendMessage: async (threadId, payload) => {
         if (!threadId) return null;
         const useThreadCache = shouldUseThreadMessageCache(threadId);
@@ -2531,17 +2802,23 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
       },
     };
   }, [
+    acceptMeeting,
+    activeMeetingSession,
     agents,
     bootstrapReady,
     botConfig,
     chatThreads,
     customSkills,
+    endMeeting,
     friendAliases,
     friends,
+    incomingMeetingSession,
     isE2E,
     language,
+    leaveMeeting,
     listMembers,
     loadOlderMessages,
+    meetingSessionsById,
     messagesByThread,
     miniAppTemplates,
     miniAppGeneration,
@@ -2552,6 +2829,8 @@ export function AgentTownProvider({ children }: { children: React.ReactNode }) {
     persistFriendAliases,
     refreshAll,
     refreshThreadMessages,
+    rejectMeeting,
+    requestMeeting,
     shouldUseThreadMessageCache,
     skillCatalog,
     tasks,

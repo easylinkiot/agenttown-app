@@ -73,6 +73,39 @@ export interface SendThreadMessageOutput {
   messages: ConversationMessage[];
 }
 
+export interface MeetingRequestInput {
+  threadId: string;
+  mode: "audio" | "video";
+  targetUserIds?: string[];
+  defaultCameraOn?: boolean;
+  clientRequestId?: string;
+}
+
+export interface MeetingAcceptInput {
+  device?: Record<string, unknown>;
+}
+
+export interface MeetingRejectInput {
+  reason?: string;
+}
+
+export interface MeetingLeaveInput {
+  reason?: string;
+}
+
+export interface MeetingEndInput {
+  reason?: string;
+}
+
+export interface MeetingOperationResponse {
+  meetingSession?: Record<string, unknown>;
+  meeting_session?: Record<string, unknown>;
+  viewStatus?: string;
+  view_status?: string;
+  acceptable?: boolean;
+  rejectable?: boolean;
+}
+
 export interface UploadV2FileInput {
   uri: string;
   name?: string;
@@ -1377,6 +1410,55 @@ export async function sendThreadMessage(threadId: string, payload: SendThreadMes
   );
 }
 
+export async function requestMeeting(payload: MeetingRequestInput) {
+  return apiFetch<MeetingOperationResponse>("/v1/meetings/request", {
+    method: "POST",
+    body: JSON.stringify({
+      thread_id: payload.threadId,
+      mode: payload.mode,
+      target_user_ids: payload.targetUserIds,
+      default_camera_on: payload.defaultCameraOn,
+      client_request_id: payload.clientRequestId,
+    }),
+  });
+}
+
+export async function acceptMeeting(meetingSessionId: string, payload?: MeetingAcceptInput) {
+  return apiFetch<MeetingOperationResponse>(`/v1/meetings/${encodeURIComponent(meetingSessionId)}/accept`, {
+    method: "POST",
+    body: JSON.stringify({
+      device: payload?.device,
+    }),
+  });
+}
+
+export async function rejectMeeting(meetingSessionId: string, payload?: MeetingRejectInput) {
+  return apiFetch<MeetingOperationResponse>(`/v1/meetings/${encodeURIComponent(meetingSessionId)}/reject`, {
+    method: "POST",
+    body: JSON.stringify({
+      reason: payload?.reason,
+    }),
+  });
+}
+
+export async function leaveMeeting(meetingSessionId: string, payload?: MeetingLeaveInput) {
+  return apiFetch<MeetingOperationResponse>(`/v1/meetings/${encodeURIComponent(meetingSessionId)}/leave`, {
+    method: "POST",
+    body: JSON.stringify({
+      reason: payload?.reason,
+    }),
+  });
+}
+
+export async function endMeeting(meetingSessionId: string, payload?: MeetingEndInput) {
+  return apiFetch<MeetingOperationResponse>(`/v1/meetings/${encodeURIComponent(meetingSessionId)}/end`, {
+    method: "POST",
+    body: JSON.stringify({
+      reason: payload?.reason,
+    }),
+  });
+}
+
 export async function uploadFileV2(input: UploadV2FileInput): Promise<UploadV2FileOutput> {
   const uri = (input.uri || "").trim();
   if (!uri) {
@@ -2140,11 +2222,12 @@ export function subscribeRealtime(
       reconnectAttempt = 0;
       clearReconnectTimer();
     };
-
+    
     nextSocket.onmessage = (event) => {
       if (!event?.data) return;
       try {
         const parsed = JSON.parse(String(event.data)) as RealtimeEvent;
+        console.log('Next Socket', parsed)
         onEvent(parsed);
       } catch {
         // Ignore malformed event payloads.

@@ -20,6 +20,60 @@ export interface ChatThread {
   groupNpcName?: string;
   groupNpcAgentId?: string;
   groupCommanderUserId?: string;
+  meetingSession?: ChatThreadMeetingSession;
+}
+
+export interface ChatThreadMeetingParticipant {
+  userId?: string;
+  name?: string;
+  avatar?: string;
+  inviteDecision?: string;
+  joinState?: string;
+}
+
+export interface ChatThreadMeetingSession {
+  id: string;
+  mode?: string;
+  inviteState?: string;
+  sessionState?: string;
+  closeReason?: string;
+  viewStatus?: string;
+  acceptable?: boolean;
+  rejectable?: boolean;
+  durationSec?: number;
+  creatorUserId?: string;
+  participants?: ChatThreadMeetingParticipant[];
+}
+
+export interface MeetingSignalPayload {
+  ver?: string;
+  action: string;
+  id: string;
+  threadId?: string;
+  mode?: string;
+  platform?: string;
+  meetingId?: string;
+  inviteState?: string;
+  sessionState?: string;
+  reason?: string;
+  viewStatus?: string;
+  acceptable?: boolean;
+  rejectable?: boolean;
+  durationSec?: number;
+  authToken?: string;
+  creatorUserId?: string;
+}
+
+export interface MeetingRuntimeSession extends ChatThreadMeetingSession {
+  id: string;
+  threadId: string;
+  meetingId?: string;
+  authToken?: string;
+  platform?: string;
+  reason?: string;
+  action?: string;
+  updatedAt?: string;
+  lastMessageId?: string;
 }
 
 export type UiTheme = "classic" | "neo";

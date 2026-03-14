@@ -1,8 +1,8 @@
 import { Platform } from "react-native";
 
 export const API_ENV_BASE_URLS = {
-  stage: "https://agenttown-api.kittens.cloud",
-  dev: "https://api.agtown.ai",
+  stage: "https://api.agtown.ai",
+  dev: "https://agenttown-api.kittens.cloud",
   local: "http://127.0.0.1:8080",
 } as const;
 

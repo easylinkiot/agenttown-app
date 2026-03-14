@@ -85,6 +85,12 @@ import {
   buildSocialChatRoute,
   resolveSocialChatRouteMode,
 } from "@/src/features/chat/chat-routes";
+import { MeetingMessageCard } from "@/src/features/meeting/MeetingMessageCard";
+import {
+  buildMeetingRuntimeSessionFromSignal,
+  isActiveMeetingSession,
+  parseMeetingSignalContent,
+} from "@/src/features/meeting/meeting-helpers";
 import { tx } from "@/src/i18n/translate";
 import {
   agentChat as agentChatApi,
@@ -1017,10 +1023,15 @@ export default function DirectChatScreen() {
     language,
     resolveFriendDisplayName,
     threadLanguageById,
+    meetingSessionsById,
     refreshAll,
     refreshThreadMessages,
     loadOlderMessages,
     sendMessage,
+    requestMeeting,
+    acceptMeeting,
+    rejectMeeting,
+    leaveMeeting,
     markThreadRead,
     listMembers,
     addMember,
@@ -1103,6 +1114,24 @@ export default function DirectChatScreen() {
     };
   }, [botConfig.avatar, chatId, chatThreads, params.avatar, params.isGroup, params.name, tr]);
   const resolvedRouteMode = resolveSocialChatRouteMode(thread);
+  const openMeetingRoute = useCallback(
+    (meetingSessionId: string) => {
+      if (!meetingSessionId) return;
+      router.push(`/meeting/${meetingSessionId}` as never);
+    },
+    [router]
+  );
+
+  const handleRequestMeeting = useCallback(
+    async (mode: "audio" | "video") => {
+      if (!chatId) return;
+      const session = await requestMeeting({ threadId: chatId, mode });
+      if (session && isActiveMeetingSession(session)) {
+        openMeetingRoute(session.id);
+      }
+    },
+    [chatId, openMeetingRoute, requestMeeting]
+  );
 
   useEffect(() => {
     if (!chatId || shouldRouteToAiChat) return;
@@ -4294,6 +4323,39 @@ export default function DirectChatScreen() {
       const messageBody = () => {
         const isMediaUploading = Boolean(uploadingMediaByMessageId[raw.id]);
         const isVideo = isVideoMessageType(raw.type);
+        if (raw.type === "meeting") {
+          const signal = parseMeetingSignalContent(raw.content);
+          const session = signal?.id
+            ? meetingSessionsById[signal.id] ||
+              buildMeetingRuntimeSessionFromSignal({
+                threadId: raw.threadId || chatId,
+                signal,
+                updatedAt: raw.receivedAt || raw.createdAt,
+                lastMessageId: raw.id,
+              })
+            : null;
+          if (session) {
+            return (
+              <MeetingMessageCard
+                session={session}
+                isMe={meFinal}
+                tr={tr}
+                onJoin={isActiveMeetingSession(session) ? () => openMeetingRoute(session.id) : undefined}
+                onAccept={session.acceptable ? () => void acceptMeeting(session.id) : undefined}
+                onReject={
+                  session.rejectable
+                    ? () =>
+                        void (
+                          session.acceptable && (session.viewStatus || "").trim().toLowerCase() === "ringing"
+                            ? rejectMeeting(session.id)
+                            : leaveMeeting(session.id)
+                        )
+                    : undefined
+                }
+              />
+            );
+          }
+        }
         if (raw.type === "voice") {
           const voiceLabel = raw.voiceDuration
             ? tr(`语音 · ${raw.voiceDuration}`, `Voice · ${raw.voiceDuration}`)
@@ -4498,14 +4560,20 @@ export default function DirectChatScreen() {
       );
     },
     [
+      acceptMeeting,
       botConfig.avatar,
+      chatId,
       currentUserId,
       handleLongPress,
       handleMessagePress,
       highlightMessageId,
+      leaveMeeting,
+      meetingSessionsById,
       openEntityConfig,
       openImageViewer,
+      openMeetingRoute,
       openVideoViewer,
+      rejectMeeting,
       selectedActionMessageId,
       streamingById,
       threadDisplayLanguage,
@@ -4759,6 +4827,16 @@ export default function DirectChatScreen() {
                   }}
                 >
                   <Ionicons name="person-add-outline" size={16} color="rgba(226,232,240,0.92)" />
+                </Pressable>
+              ) : null}
+              {!aiAgentMode ? (
+                <Pressable style={styles.headerIcon} onPress={() => void handleRequestMeeting("audio")}>
+                  <Ionicons name="call-outline" size={16} color="rgba(226,232,240,0.92)" />
+                </Pressable>
+              ) : null}
+              {!aiAgentMode && thread.supportsVideo !== false ? (
+                <Pressable style={styles.headerIcon} onPress={() => void handleRequestMeeting("video")}>
+                  <Ionicons name="videocam-outline" size={16} color="rgba(226,232,240,0.92)" />
                 </Pressable>
               ) : null}
               {!aiAgentMode ? (

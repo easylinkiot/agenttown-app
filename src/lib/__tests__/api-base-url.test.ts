@@ -23,7 +23,7 @@ describe("api base url config", () => {
     process.env.EXPO_PUBLIC_API_ENV = "development";
 
     expect(getApiEnvironment()).toBe("dev");
-    expect(getDefaultApiBaseUrl()).toBe("https://api.agtown.ai");
+    expect(getDefaultApiBaseUrl()).toBe("https://agenttown-api.kittens.cloud");
   });
 
   it("supports local environment alias", () => {
@@ -49,7 +49,7 @@ describe("api base url config", () => {
         platformOS: "ios",
         isReleaseBuild: true,
       })
-    ).toBe("https://api.agtown.ai");
+    ).toBe("https://agenttown-api.kittens.cloud");
   });
 
   it("allows localhost in release for e2e overrides", () => {
@@ -68,7 +68,7 @@ describe("api base url config", () => {
     expect(
       resolveApiBaseUrl({
         apiEnv: "local",
-        explicitBaseUrl: "https://api.agtown.ai",
+        explicitBaseUrl: "https://agenttown-api.kittens.cloud",
         platformOS: "ios",
         isReleaseBuild: false,
       })

@@ -23,7 +23,11 @@
         "NSSpeechRecognitionUsageDescription": "Allow UsChat to use speech recognition for voice input.",
         "NSCameraUsageDescription": "Allow UsChat to access the camera for scanning friend QR codes and sharing photos.",
         "NSPhotoLibraryUsageDescription": "Allow UsChat to access your photo library to share images.",
-        "NSPhotoLibraryAddUsageDescription": "Allow UsChat to save images to your photo library."
+        "NSPhotoLibraryAddUsageDescription": "Allow UsChat to save images to your photo library.",
+        "UIBackgroundModes": [
+          "audio",
+          "voip"
+        ]
       }
     },
     "android": {
@@ -35,9 +39,16 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.jason.agenttown",
       "permissions": [
+        "ACCESS_NETWORK_STATE",
+        "BLUETOOTH",
         "RECORD_AUDIO",
         "POST_NOTIFICATIONS",
         "CAMERA",
+        "MODIFY_AUDIO_SETTINGS",
+        "WAKE_LOCK",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PROJECTION",
+        "MICROPHONE",
         "READ_MEDIA_IMAGES",
         "READ_MEDIA_VIDEO",
         "READ_EXTERNAL_STORAGE"
@@ -62,7 +73,9 @@
           ]
         }
       ],
-      "expo-video"
+      "expo-video",
+      "@cloudflare/realtimekit-react-native",
+      "@cloudflare/react-native-webrtc"
     ],
     "experiments": {
       "typedRoutes": true

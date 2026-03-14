@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { APP_SAFE_AREA_EDGES } from "@/src/constants/safe-area";
+import { MeetingCoordinator } from "@/src/features/meeting/MeetingCoordinator";
 import { AgentTownProvider } from "@/src/state/agenttown-context";
 import { AuthProvider, useAuth } from "@/src/state/auth-context";
 
@@ -69,6 +70,7 @@ function RootStack() {
       <Stack.Screen name="index" />
       <Stack.Screen name="chat/[id]" />
       <Stack.Screen name="group-chat/[id]" />
+      <Stack.Screen name="meeting/[id]" />
       <Stack.Screen name="ai-chat" />
       <Stack.Screen name="npc-chat/[npcId]" />
       <Stack.Screen name="npc-create" />
@@ -101,6 +103,7 @@ export default function RootLayout() {
     <AuthProvider>
       <AgentTownProvider>
         <RootStack />
+        <MeetingCoordinator />
       </AgentTownProvider>
     </AuthProvider>
   );
